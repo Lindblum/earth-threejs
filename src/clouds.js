@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { CLOUDS } from './sources.js';
 import { geodeticToEcef } from './geo.js';
+import { sunUniform } from './sky.js';
+import { sunlight } from './tileMaterial.js';
 
 // Map → Clouds: the world's clouds as they are now, at their height.
 //
@@ -13,8 +15,9 @@ import { geodeticToEcef } from './geo.js';
 // between them, so stacked they add up to it.
 //
 // One equirectangular image, so a shell's uvs are just longitude and
-// latitude. Unlit, seen from both sides, drawn after the ground without
-// hiding it from the depth buffer.
+// latitude. Lit by the Sun as the ground is (see tileMaterial.js), seen
+// from both sides, drawn after the ground without hiding it from the depth
+// buffer.
 
 const LAYERS_KM = [1, 2.5, 4, 5.5, 7, 8.5, 10, 11.5];
 const SPACING_KM = 1.5;
@@ -24,8 +27,10 @@ const OPACITY = 0.95;
 
 const vertexShader = /* glsl */ `
 varying vec2 vUv;
+varying vec3 vUp;
 void main() {
   vUv = uv;
+  vUp = position; // (ECEF: up is away from the centre, near enough)
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
@@ -36,7 +41,9 @@ const fragmentShader = /* glsl */ `
 uniform sampler2D map;
 uniform sampler2D ground;
 uniform float layerKm;
+uniform vec3 sunDirection;
 varying vec2 vUv;
+varying vec3 vUp;
 void main() {
   vec4 t = texture2D(map, vUv);
   float cover = t.r;
@@ -50,7 +57,9 @@ void main() {
   float groundKm = texture2D(ground, vUv).r * ${GROUND_MAX_KM.toFixed(1)};
   a *= smoothstep(groundKm + ${GROUND_CLEARANCE_KM[0].toFixed(2)}, groundKm + ${GROUND_CLEARANCE_KM[1].toFixed(2)}, layerKm);
   if (a < 0.002) discard;
-  gl_FragColor = vec4(vec3(0.96), a);
+  // lit as the ground is (day, dusk, night), but a little longer: their tops catch the Sun after it's set below
+  float light = ${sunlight('vUp', 0.02)};
+  gl_FragColor = vec4(vec3(0.96 * light), a);
   #include <colorspace_fragment>
 }
 `;
@@ -99,7 +108,7 @@ export function makeClouds(width, analyse) {
       name: 'Clouds',
       vertexShader,
       fragmentShader,
-      uniforms: { map: { value: texture }, ground: { value: texture }, layerKm: { value: km } },
+      uniforms: { map: { value: texture }, ground: { value: texture }, layerKm: { value: km }, sunDirection: sunUniform },
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,

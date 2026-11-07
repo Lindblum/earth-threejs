@@ -3,7 +3,8 @@ import { DEG, MERCATOR_MAX_LAT, WGS84_A, WGS84_B, angleDiff, edgeLoop, ecefToGeo
 import { ELEVATION, IMAGERY } from './sources.js';
 import { fetchTile } from './tileCache.js';
 import { makeClouds } from './clouds.js';
-import { FADE_S, GAIN_POINTS, endFade, fadeFrom, gainTexture, setGains, tileMaterial } from './tileMaterial.js';
+import { FADE_S, GAIN_POINTS, endFade, fadeFrom, gainTexture, setGains, sunlight, tileMaterial } from './tileMaterial.js';
+import { sunUniform } from './sky.js';
 
 // The globe: a quadtree of Web Mercator tiles, each a mesh of its patch of
 // ground (built in the tile worker from elevation tiles) wearing its imagery
@@ -288,7 +289,7 @@ function sharedGeometry(n) {
   return { uv: new THREE.BufferAttribute(uv, 2), index: new THREE.BufferAttribute(new Uint16Array(index), 1) };
 }
 
-/** The plain globe beneath the tiles: ocean blue, white past the tiles' reach at the poles. */
+/** The plain globe beneath the tiles: ocean blue, white past the tiles' reach at the poles; lit by the Sun as they are. */
 function baseGlobe() {
   const geometry = new THREE.SphereGeometry(1, 128, 64);
   const pos = geometry.getAttribute('position');
@@ -306,7 +307,28 @@ function baseGlobe() {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.computeBoundingSphere();
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ vertexColors: true }));
+  const material = new THREE.ShaderMaterial({
+    name: 'BaseGlobe',
+    vertexColors: true,
+    uniforms: { sunDirection: sunUniform },
+    vertexShader: /* glsl */ `
+      varying vec3 vColor;
+      varying vec3 vUp;
+      void main() {
+        vColor = color;
+        vUp = position; // (ECEF)
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 sunDirection;
+      varying vec3 vColor;
+      varying vec3 vUp;
+      void main() {
+        gl_FragColor = vec4(vColor * ${sunlight('vUp')}, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'base-globe';
   return mesh;
 }

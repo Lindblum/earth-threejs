@@ -207,7 +207,7 @@ export function menuItems(state, env) {
   });
   return [
     group('location', 'Location', 'location', ['myLocation', 'approximate', 'realSize']),
-    group('map', 'Map', 'layers', ['imagery', 'terrain', 'clouds', 'detail', 'tileMemory', 'clearCache']),
+    group('map', 'Map', 'layers', ['imagery', 'terrain', 'clouds', 'constellations', 'detail', 'tileMemory', 'clearCache']),
     group('display', 'Display', 'display', ['view', 'background', 'colorMatch', 'stats', 'vsync', 'xrResolution']),
     group('accessibility', 'Accessibility', 'accessibility', ['volume', 'vibration', 'textSize', 'controllerGuide']),
   ];
@@ -259,7 +259,13 @@ function settingsById(state, env) {
       id: 'clouds',
       label: `Clouds: ${state.clouds ? 'On' : 'Off'}`,
       icon: state.clouds ? 'cloudsOn' : 'cloudsOff',
-      title: "The world's clouds as they are now (EUMETSAT's satellites, a new map every 3 hours), 6 km up",
+      title: "The world's clouds as they are now (NOAA's geostationary satellites' infrared, hourly), each at its height",
+    },
+    {
+      id: 'constellations',
+      label: `Constellations: ${state.constellations ? 'On' : 'Off'}`,
+      icon: state.constellations ? 'constellationsOn' : 'constellationsOff',
+      title: "The constellations' figures and names, over the stars where they are now (with the Skybox background)",
     },
     {
       id: 'detail',
@@ -386,7 +392,7 @@ export function possibleLabels(env) {
     for (const background of backgrounds)
       for (const view of env.views)
         for (const imagery of IMAGERY_IDS) {
-          const state = { locating: flag ? 'device' : 'network', cacheCleared: flag, imagery, terrain: flag, clouds: flag, colorMatch: flag, detail: DETAIL.max, tileMemory: TILE_MEMORY.max, stats: flag, volume: 1, vibration: 1, background, view, dropdowns: [], textSize: 1, controllerGuide: flag, vsync: flag, xrResolution: 1, xrResolutionActive: null };
+          const state = { locating: flag ? 'device' : 'network', cacheCleared: flag, imagery, terrain: flag, clouds: flag, constellations: flag, colorMatch: flag, detail: DETAIL.max, tileMemory: TILE_MEMORY.max, stats: flag, volume: 1, vibration: 1, background, view, dropdowns: [], textSize: 1, controllerGuide: flag, vsync: flag, xrResolution: 1, xrResolutionActive: null };
           for (const item of Object.values(settingsById(state, env))) labels.add(item.label);
         }
   labels.add(`Text Size: ${percent(TEXT_SIZE.max)}`);

@@ -25,6 +25,9 @@ npm run preview    # the build, on http://localhost:5277
 | Imagery: maps | OpenStreetMap, Esri Streets / Topo / Ocean / Physical (to zoom 8), National Geographic, OpenTopoMap, USGS Topo (US) | OpenStreetMap's and OpenTopoMap's servers ask for light use |
 | Imagery dates | Esri's citations service (World Imagery, Clarity) | Shown under the location: the photo at the place and zoom on show, its date, source and resolution; other sources' fixed dates |
 | Clouds | NOAA GMGSI longwave infrared mosaic (GOES, Meteosat, Himawari) via [nowCOAST](https://nowcoast.noaa.gov) | Map → Clouds: hourly, global to about ±70°. Each pixel's infrared temperature against clear ground nearby (the warmest few percent within ~8°) gives its cloud cover, and how much colder it is its top's height (6.5 K a km); drawn as stacked shells from 1 to 11.5 km, each showing the clouds whose tops reach it |
+| Stars | The skybox (`public/img/skybox.jpg`): a galactic panorama of the Milky Way | Turned to where the stars are now (see How it works) |
+| Constellations | [d3-celestial](https://github.com/ofrohn/d3-celestial) (Olaf Frohn, BSD-3-Clause) | Its figures and names, flattened into `src/constellations.js` |
+| The Moon | [NASA SVS CGI Moon Kit](https://svs.gsfc.nasa.gov/4720) (LRO colour map, public domain) | `public/img/moon.jpg`, 1024 × 512 |
 | Elevation | [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen Terrarium) | Heights to zoom 15. Oceans are drawn at sea level (no sea floor) |
 | Start location | [GeoJS](https://www.geojs.io), then [ipapi.co](https://ipapi.co) | From your network address, no permission asked. Location → My Location asks the device (GPS) instead |
 
@@ -37,8 +40,9 @@ Credits for what's showing are at the bottom right (in XR, under the Options tit
 - **Caching**: every tile downloaded is kept in the browser's Cache Storage (`src/tileCache.js`, up to 30,000 tiles, oldest dropped first; Map → Clear Tile Cache forgets them), and up to Map → Tile Memory tiles stay loaded on the GPU, least recently used dropped first.
 - **The world moves, not you** (`src/EarthPose.js`): the XR origin never moves or scales. The Earth turns, moves and scales round you, so everything near you stays near the origin. The ground beneath your head is the anchor: its up is the world's up, and travelling follows its rise and fall. In XR the world is kept upright round you at every scale: the Earth's centre straight below your head. You can come right down to the ground; a head that goes under it is pushed back out.
 - **Fades** (`src/tileMaterial.js`): a tile newly shown fades in over 0.35 s from what it replaced (the part of the coarser tile it split out of, or the four children that joined back into it), its image and its ground both: each vertex starts at the old ground's height there and eases to its own.
-- **Color Blending** (Video; photos only, maps are shown as they are): neighbouring tiles often come from different photos, so their colours clash (water most). Every tile is compared with its zoom-10 ancestor (one image, one colour balance, under a large area) patch by patch, each patch about one of the reference's pixels across (~500 m) at every zoom. Each zoom's samples make a smooth correction field over the ground (Gaussian, ~1 km), and each tile takes that field at a 9 × 9 lattice whose outer points lie on its edges: a function of place alone, so neighbouring tiles agree where they meet and no seams are made. Where a coarser tile meets a finer one (another photo layer), the finer one's edge is shaded, fading out by its middle, to match its own ancestor at the coarser zoom over the same ground: that's the neighbour's photo layer, so the two meet without a step, and what's compared is always the same place in two photos (a shore along the edge isn't mistaken for a photo difference). Off: every tile's gain is exactly 1, at once.
-- **The sky** turns with the Earth (it's the world that turns, not you): the stars are fixed to it, the pole star over the North Pole.
+- **Color Blending** (Display; photos only, maps are shown as they are): neighbouring tiles often come from different photos, so their colours clash (water most). Every tile is compared with its zoom-10 ancestor (one image, one colour balance, under a large area) patch by patch, each patch about one of the reference's pixels across (~500 m) at every zoom. Each zoom's samples make a smooth correction field over the ground (Gaussian, ~1 km), and each tile takes that field at a 9 × 9 lattice whose outer points lie on its edges: a function of place alone, so neighbouring tiles agree where they meet and no seams are made. Where a coarser tile meets a finer one (another photo layer), the finer one's edge is shaded, fading out by its middle, to match its own ancestor at the coarser zoom over the same ground: that's the neighbour's photo layer, so the two meet without a step, and what's compared is always the same place in two photos (a shore along the edge isn't mistaken for a photo difference). Off: every tile's gain is exactly 1, at once.
+- **The sky** (`src/sky.js`, `src/SkyLayer.jsx`): the stars, the Sun and the Moon where they are now, by the clock. The Earth's turn (sidereal time), precession since 2000 (0.37° so far) and the Astronomical Almanac's low-precision Sun (about 0.01°) and Moon (about 0.3°) put them in the Earth's frame, and the Earth's pose into the world. The skybox is a galactic panorama: it came mirrored (the Magellanic Clouds and Andromeda gave it away) and was flipped, and it's turned 3.7° off true galactic axes, a correction fitted to 38 of the brightest stars found in it (a median 0.16° off after). The constellations, the Sun (its disc its true size, and a glow) and the Moon (its true size from where you stand, near side toward the Earth, lit by the Sun so in its phase, faint earthshine on the rest) are drawn at infinity: round the viewer and at the far plane's depth, so the Earth and clouds hide them and the far plane never has to reach them.
+- **Day and night** (`src/tileMaterial.js` `sunlight`): the Sun lights the ground, the clouds and the plain globe beneath: fully wherever it's up (the photos have their own daylight, so no shading on top), down to 6% at night, through a dusk band about 10° wide across the terminator (a little later on clouds, whose tops catch the Sun after the ground's lost it). The controllers are lit by the Sun too, with only a little light all round.
 - **Depth**: the near plane stays at 5 cm (hands and panels), the far one just past the horizon, in powers of two.
 
 ## Controls
@@ -57,8 +61,8 @@ Credits for what's showing are at the bottom right (in XR, under the Options tit
 | Group | Settings |
 | --- | --- |
 | Location | My Location (the device's), Approximate Location (back to where you started), 1:1 Scale |
-| Map | Imagery (15 sources: photos and maps; switching crossfades, nearest first), Terrain, Clouds, Detail, Tile Memory, Clear Tile Cache |
-| Video | Background (Solid, Skybox, Passthrough), View Mode, Color Blending, Show Stats (fps, tiles), VSync, XR Resolution |
+| Map | Imagery (15 sources: photos and maps; switching crossfades, nearest first), Terrain, Clouds, Constellations (figures and names over the stars, with the Skybox background), Detail, Tile Memory, Clear Tile Cache |
+| Display | Background (Solid, Skybox, Passthrough; over passthrough no stars, Sun or Moon), View Mode, Color Blending, Show Stats (fps, tiles), VSync, XR Resolution |
 | Accessibility | Volume (the menu tick, from grid-game-threejs: every press and thumbstick step, not slider drags), Vibration, Text Size, Controller Guide |
 
 ## Layout
@@ -69,6 +73,7 @@ Credits for what's showing are at the bottom right (in XR, under the Options tit
 - `src/EarthPose.js`: where the Earth is in the world, and moving it
 - `src/Earth.jsx`: the globe in the scene, the depth range, the desktop controls
 - `src/Grab.jsx`, `src/grip.js`: XR controllers: holding the world, the sticks, the panels
+- `src/sky.js`, `src/SkyLayer.jsx`, `src/constellations.js`: the stars, Sun and Moon now, and drawing them
 - `src/location.js`: finding where you are
 - `src/Scene.jsx`, `src/App.jsx`: the scene, app state and windowed panels
 - `src/menu.js`, `src/XRMenuPanel.jsx`: the panels and their XR (canvas) versions
@@ -76,4 +81,4 @@ Credits for what's showing are at the bottom right (in XR, under the Options tit
 
 ## Next
 
-Once getting about is smooth: an atmosphere and day / night, place search, buildings (OpenStreetMap).
+Once getting about is smooth: an atmosphere (a blue sky by day), city lights on the night side (Black Marble), a time control, place search, buildings (OpenStreetMap).

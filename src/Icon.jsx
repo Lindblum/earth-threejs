@@ -174,6 +174,12 @@ const gravityOff = gravity.replace(
 );
 
 /** `svg` struck through, for an effect turned off. */
+// Constellations: four stars joined by a figure's lines
+const constellation = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M4.75 18 9.75 8.5l7 4.25 3-7.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" opacity="0.65"/>
+<circle cx="4.75" cy="18" r="1.75" fill="currentColor"/><circle cx="9.75" cy="8.5" r="1.75" fill="currentColor"/><circle cx="16.75" cy="12.75" r="1.5" fill="currentColor"/><circle cx="19.75" cy="5.25" r="1.25" fill="currentColor"/>
+</svg>`;
+
 const struck = (svg) => svg.replace('</svg>', '<path d="M3.5 3.5 20.5 20.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>');
 const drawn = (d) =>
   `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="${d}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -205,6 +211,8 @@ const ICONS = {
   terrainOff: struck(recolour(mountains)),
   cloudsOn: recolour(cloud),
   cloudsOff: struck(recolour(cloud)),
+  constellationsOn: constellation,
+  constellationsOff: struck(constellation),
   colorMatchOn: recolour(palette),
   colorMatchOff: struck(recolour(palette)),
   realSize: recolour(ruler),

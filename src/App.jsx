@@ -101,7 +101,7 @@ const XR_RESOLUTION_KEY = 'earth.xrResolution';
 const VSYNC_KEY = 'earth.vsync';
 const STATS_KEY = 'earth.stats';
 
-/** Map settings: { imagery, terrain, detail, tileMemory }, as last left. */
+/** Map settings: { imagery, terrain, colorMatch, clouds, constellations, detail, tileMemory }, as last left. */
 function loadMap() {
   const saved = loadSetting(MAP_KEY, {});
   return {
@@ -111,6 +111,7 @@ function loadMap() {
     colorMatch: saved.version >= MAP_VERSION ? saved.colorMatch === true : false,
     version: MAP_VERSION,
     clouds: saved.clouds === true,
+    constellations: saved.constellations === true,
     detail: snapToSlider(DETAIL, saved.detail),
     tileMemory: snapToSlider(TILE_MEMORY, saved.tileMemory ?? (isHeadsetBrowser() ? 350 : TILE_MEMORY.default)),
   };
@@ -818,6 +819,7 @@ export default function App() {
     else if (id === 'terrain') actions.setMap({ terrain: !state.terrain });
     else if (id === 'colorMatch') actions.setMap({ colorMatch: !state.colorMatch });
     else if (id === 'clouds') actions.setMap({ clouds: !state.clouds });
+    else if (id === 'constellations') actions.setMap({ constellations: !state.constellations });
     else if (id === 'clearCache')
       clearTileCache().then(
         () => actions.setCacheCleared(true),

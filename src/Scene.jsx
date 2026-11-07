@@ -14,6 +14,7 @@ import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
 import { DesktopControls, Earth } from './Earth.jsx';
 import { playTick } from './sound.js';
+import { SkyLayer, sunInWorld } from './SkyLayer.jsx';
 
 const BASE = import.meta.env.BASE_URL;
 const SKY_URL = `${BASE}img/skybox.jpg`;
@@ -38,21 +39,11 @@ const WINDOW_FOV = 60;
 const MENU_HOME = { position: [0, 0.95, -0.75], rotation: [-0.55, 0, 0] };
 const PHONE_STEREO_MENU_SCALE = 1.5;
 
-// The stars are fixed to the Earth (the world turns round you, so the sky
-// turns with it): the sky texture's up along the Earth's axis, so the pole
-// star stands over the North Pole. Its frame, from the Earth's: x stays x,
-// the Earth's z (north) is the texture's up, its y the texture's -z.
-const SKY_FROM_EARTH = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1));
-const EARTH_FROM_SKY = SKY_FROM_EARTH.clone().invert();
-const _skyTurn = new THREE.Quaternion();
-
 /**
  * The starry sky, behind everything (scene.background: drawn whatever the far
- * plane), turned with the Earth (`pose`). three.js looks the sky up along
- * (its rotation)ᵀ × the world direction: so the rotation is the Earth's, times the sky's frame's back to the Earth's.
+ * plane). SkyLayer turns it to where the stars are now (scene.backgroundRotation).
  */
-function Sky({ passthrough, pose }) {
-  useFrame(({ scene }) => scene.backgroundRotation.setFromQuaternion(_skyTurn.multiplyQuaternions(pose.q, EARTH_FROM_SKY)));
+function Sky({ passthrough }) {
   const texture = useLoader(THREE.TextureLoader, SKY_URL);
   const scene = useThree((s) => s.scene);
   const gl = useThree((s) => s.gl);
@@ -84,7 +75,7 @@ function SolidDome() {
   );
 }
 
-function Backdrop({ background, pose }) {
+function Backdrop({ background }) {
   const scene = useThree((s) => s.scene);
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   const solid = background === 'solid';
@@ -100,18 +91,24 @@ function Backdrop({ background, pose }) {
   return (
     <AssetBoundary>
       <Suspense fallback={null}>
-        <Sky passthrough={background === 'passthrough'} pose={pose} />
+        <Sky passthrough={background === 'passthrough'} />
       </Suspense>
     </AssetBoundary>
   );
 }
 
-/** Light for the controllers' models and probes (the ground itself is unlit: its photos are their own light). */
-function Lights() {
+/**
+ * Light for the controllers' models and probes: the Sun, where it is, and a
+ * little light all round (the ground and clouds are lit in their own
+ * shaders, by the same Sun: see tileMaterial.js).
+ */
+function Lights({ pose }) {
+  const sun = useRef(null);
+  useFrame(() => sun.current && sunInWorld(pose, sun.current.position).multiplyScalar(10));
   return (
     <>
-      <hemisphereLight args={['#dfe8ff', '#3a3f4a', 1.2]} />
-      <directionalLight position={[1.5, 4, 1]} intensity={1.5} />
+      <hemisphereLight args={['#dfe8ff', '#3a3f4a', 0.15]} />
+      <directionalLight ref={sun} intensity={2} />
     </>
   );
 }
@@ -186,6 +183,9 @@ export default function Scene({ state, panels, onSelect, menuOverlay, phone, pos
   const menus = useRef(null);
   menus.current = { menu: options, view };
   const [stickFocus, setStickFocus] = useState({});
+  // the real world behind (a camera's view, or a headset's passthrough): no stars, Sun or Moon over it
+  const seeThrough = (cameraPassthrough && !cameraFailed) || (inAR && state.background === 'passthrough');
+  const showStars = state.background !== 'solid' && !seeThrough;
   return (
     <>
       {cameraPassthrough && !cameraFailed ? (
@@ -197,7 +197,7 @@ export default function Scene({ state, panels, onSelect, menuOverlay, phone, pos
           }}
         />
       ) : (
-        <Backdrop background={state.background} pose={pose} />
+        <Backdrop background={state.background} />
       )}
       <FramePacing seeThrough={false} vsync={state.vsync} />
       <RestoreViewAfterXR />
@@ -207,7 +207,7 @@ export default function Scene({ state, panels, onSelect, menuOverlay, phone, pos
       {phoneStereo && state.passthrough && (
         <PhoneStereoCameraFeed onUnavailable={(reason) => console.warn(`[earth] no per-eye camera image (${reason}); the browser's camera view shows behind instead`)} />
       )}
-      <Lights />
+      <Lights pose={pose} />
       {/* (the controls move the Earth first; then it's placed and its tiles picked for the frame) */}
       {!immersive && <DesktopControls pose={pose} globeRef={globeRef} />}
       <Player
@@ -227,6 +227,8 @@ export default function Scene({ state, panels, onSelect, menuOverlay, phone, pos
         {inSession && view && <XRPanel panel={view} onSelect={onSelect} groupRef={viewPanel} focusKey={stickFocus.view} />}
       </Player>
       <Earth pose={pose} globeRef={globeRef} options={globeOptions} onStatus={onStatus} />
+      {/* (after the Earth's placed for the frame) */}
+      <SkyLayer pose={pose} stars={showStars} constellations={state.constellations} bodies={!seeThrough} />
       {inSession && hasControllers && state.controllerGuide && <ControllerGuide textSize={state.textSize} />}
       {immersive && !hasControllers && <GazeReticle />}
       {state.handheld && <CardboardRig split={state.stereo} />}
