@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
 import { parseSlide, settingItems, slideEndId, slideId, snapToSlider, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
+import { guideImage } from './controlsGuide.js';
 
 // The panels in XR. Each draws a panel of the same template as the windowed
 // ones (menu.js optionsPanel, viewPanel: its toggle button, title, XR status,
@@ -134,6 +135,14 @@ function layout(toggleId, open, items, lines, panelW, lists = true) {
       y += BUTTON_H + GAP;
       if (!lists) continue;
       if (item.group?.open) place(item.group.items, x + OPTION_INDENT);
+      if (item.group?.open && item.group.guide) {
+        // Options → Controls' drawing, the group's width, as tall as it scales to (nothing to press)
+        const gx = x + OPTION_INDENT;
+        const gw = panelW - PAD - gx;
+        const gh = Math.round((gw * item.group.guide.height) / item.group.guide.width);
+        rects.push({ id: `guide:${item.id}`, guide: item.group.guide, x: gx, y, w: gw, h: gh });
+        y += gh + GAP;
+      }
       if (!item.dropdown?.open) continue;
       const optionW = (w - OPTION_INDENT - OPTION_GAP) / 2;
       item.dropdown.options.forEach((option, i) => {
@@ -354,6 +363,11 @@ export function XRPanel({ panel, onSelect, groupRef, focusKey }) {
     ctx.translate(0, -scrollTop);
     for (const r of rects.slice(1)) {
       if (r.y + r.h < viewTop + scrollTop || r.y > viewBottom + scrollTop) continue;
+      if (r.guide) {
+        const img = guideImage(r.guide, r.w, redraw);
+        if (img.complete && img.naturalWidth) ctx.drawImage(img, r.x, r.y, r.w, r.h);
+        continue;
+      }
       if (r.option) {
         // a choice in an open dropdown: smaller, the current one lit and ticked
         const { option } = r;
@@ -485,7 +499,7 @@ export function XRPanel({ panel, onSelect, groupRef, focusKey }) {
     if (bar) for (const q of [bar.up, bar.down, bar.track]) if (inside(q)) return q.id;
     if (py < viewTop || py > viewBottom) return null;
     const r = rects.slice(1).find((q) => inside(q, q.y - scrollTop));
-    if (!r || r.item?.disabled || r.option?.disabled) return null;
+    if (!r || r.guide || r.item?.disabled || r.option?.disabled) return null;
     // a slider's track (or a little left of it): the value there
     if (r.item?.slider && px >= sliderTrack(r).x0 - 2 * KNOB) return slideId(r.id, sliderValueAt(r.item, r, px));
     return r.id;
@@ -537,7 +551,8 @@ export function XRPanel({ panel, onSelect, groupRef, focusKey }) {
     button: centre[0] - (width / 2) * PX_M + (PAD + TOGGLE / 2) * PX_M,
   };
   return (
-    <group ref={groupRef} userData={{ bounds }}>
+    // (a thumbstick on a controller pointing at the panel scrolls it, see Grab.jsx: by `dy` canvas px)
+    <group ref={groupRef} userData={{ bounds, scrollBy: (dy) => bar && scrollTo(scrollTop + dy) }}>
       <mesh
         ref={mesh}
         position={[centre[0], centre[1], 0]}

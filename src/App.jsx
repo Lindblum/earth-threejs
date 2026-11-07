@@ -4,6 +4,7 @@ import { Canvas } from '@react-three/fiber';
 import { XR, createXRStore, useXRSessionModeSupported } from '@react-three/xr';
 import Scene from './Scene.jsx';
 import Icon from './Icon.jsx';
+import { getLastInput, subscribeLastInput, watchXRInput } from './controlsGuide.js';
 import { phoneARSessionInit } from './PhoneStereo.jsx';
 import { XR_RESOLUTION, setXRViewportScale } from './xrResolution.js';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
@@ -458,6 +459,8 @@ function MenuList({ items, onSelect }) {
         {item.group?.open && (
           <div className="menu-group">
             <MenuList items={item.group.items} onSelect={onSelect} />
+            {/* Controls: a drawing of what the input last touched does (controlsGuide.js) */}
+            {item.group.guide && <div className="controls-guide" dangerouslySetInnerHTML={{ __html: item.group.guide.svg }} />}
           </div>
         )}
         {item.dropdown?.open && (
@@ -701,6 +704,7 @@ export default function App() {
   const phone = useMemo(isPhone, []);
   const headset = useMemo(isHeadsetBrowser, []);
   const sessionActive = useSyncExternalStore(store.subscribe, getSessionActive);
+  const input = useSyncExternalStore(subscribeLastInput, getLastInput); // (the input last touched: Options → Controls shows it)
   const sessionMode = useSyncExternalStore(store.subscribe, getSessionMode);
   const domOverlay = useSyncExternalStore(store.subscribe, getDomOverlay);
   const inXR = sessionActive || viewerState.handheld;
@@ -846,6 +850,11 @@ export default function App() {
     const session = sessionActive && store.getState().session;
     return session ? wakeSoundInXR(session) : undefined;
   }, [sessionActive]);
+  // ...and count as the input last touched (see controlsGuide.js)
+  useEffect(() => {
+    const session = sessionActive && store.getState().session;
+    return session ? watchXRInput(session) : undefined;
+  }, [sessionActive]);
 
   // XR Resolution let go at a new value during a session: the session starts again at it
   const restartingXR = useRef(false);
@@ -915,7 +924,7 @@ export default function App() {
     inXR ? credits(state.imagery, state.terrain, state.clouds) : null,
   ];
 
-  const items = menuItems(state.textSizeDragged != null ? { ...state, textSize: state.textSizeDragged } : state, { passthroughAvailable, views, phone, checking: !support.checked && !phone });
+  const items = menuItems(state.textSizeDragged != null ? { ...state, textSize: state.textSizeDragged } : state, { passthroughAvailable, views, phone, input, checking: !support.checked && !phone });
   const onSelect = (id) => {
     const slide = parseSlide(id);
     // (the menu tick, as in grid-game-threejs: every press, but not every step of a slider's drag)

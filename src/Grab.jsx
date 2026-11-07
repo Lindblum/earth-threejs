@@ -22,13 +22,15 @@ import { focusables, parseSlide, slideEndId, slideId } from './menu.js';
 // faster the higher you are; either trigger, pulled, speeds that up (to
 // BOOST times at full pull). The right, up and down, raises and lowers you
 // (as fast, boosted too); left and right, turns you about the line from the
-// Earth's centre up through your head. While its controller
-// points at a panel, a stick works that panel instead of moving you: the lit
+// Earth's centre up through your head. While a controller points at a panel,
+// two sticks work it instead of moving you. The pointing controller's scrolls
+// it (up and down). The stick of the controller the panel is docked on (or, a
+// panel not docked there, the other controller's) steps through it: the lit
 // control starts at the one pointed at, up and down go through its buttons,
 // settings and choices (left and right set a slider), A / X presses the one
-// lit, B / Y goes up a level. Pressed in (L3 / R3), a stick works the panels
-// docked on its controller wherever it points (its probe turns blue); pressed
-// again, back to moving.
+// lit, B / Y goes up a level. Pressed in (L3 / R3), a stick steps through the
+// panels docked on its controller wherever it points (its probe turns blue);
+// pressed again, back to moving.
 //
 // The panels dock on a controller, stacked upward, tipped toward the eyes:
 // the View panel and Options above it on the left. A grip pressed while that
@@ -82,6 +84,7 @@ const MOVE_PER_HEIGHT = 1; // ...and this many times your height over it a secon
 const TURN_SPEED = 1.5; // rad/s at full tilt
 const BOOST = 8; // a trigger pulled all the way: moving this many times faster
 const MIN_SPAN = 0.02; // m: hands nearer than this don't scale
+const MENU_SCROLL_SPEED = 1400; // canvas px a second at full tilt: a pointing controller's stick scrolling the panel
 const MENU_TILT = 0.6; // a stick tilted this far steps through a panel...
 const MENU_REPEAT = [0.4, 0.12]; // ...again after this long held, then this often
 
@@ -367,7 +370,23 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
       }
       return 0;
     };
-    const pointing = {}; // hand -> the panel its ray is on: its stick works that panel, not the world
+    const pointing = {}; // hand -> the panel its ray is on: its stick scrolls that panel, not the world
+    for (const hand of HANDS) {
+      const c = controllers[hand];
+      pointing[hand] = c && !busy[hand] ? panelPointed(c) : null;
+      const scrollBy = pointing[hand] && groupOf(pointing[hand].key)?.userData.scrollBy;
+      if (scrollBy && c.stick.y) scrollBy(c.stick.y * MENU_SCROLL_SPEED * dt);
+    }
+    // hand -> the panel another controller points at, which this one's stick steps through: the controller
+    // it's docked on (docked on the pointing one itself, or not docked, the other); not while it points at one itself
+    const stepping = {};
+    for (const hand of HANDS) {
+      const at = pointing[hand];
+      if (!at) continue;
+      const on = docks.current[at.key]?.on;
+      const by = on && on !== hand ? on : otherHand(hand);
+      if (controllers[by] && !busy[by] && !pointing[by]) stepping[by] = at;
+    }
     let stepped = false; // (a stick or button moved the lit control, not the ray: that ticks)
     for (const hand of HANDS) {
       const c = controllers[hand];
@@ -376,9 +395,8 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
         buzz(hand, menuMode.current[hand] ? PULSE.dock : PULSE.detach);
       }
       probes[hand]?.current?.material.color.set(menuMode.current[hand] ? PROBE_MENU_COLOR : PROBE_COLOR);
-      const at = c && !busy[hand] ? panelPointed(c) : null;
-      pointing[hand] = at;
-      if (!c || busy[hand] || (!menuMode.current[hand] && !at)) {
+      const at = stepping[hand] ?? null;
+      if (!c || busy[hand] || pointing[hand] || (!menuMode.current[hand] && !at)) {
         focus.current[hand] = null;
         pointedAt.current[hand] = null;
         continue;
@@ -445,7 +463,7 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
     const rc = controllers.right;
     const boost = 1 + (BOOST - 1) * Math.max(lc?.triggerValue ?? 0, rc?.triggerValue ?? 0);
     const speed = Math.max(MOVE_SPEED, MOVE_PER_HEIGHT * pose.clearance) * boost * dt;
-    if (lc && !w && !busy.left && !menuMode.current.left && !pointing.left && (lc.stick.x || lc.stick.y)) {
+    if (lc && !w && !busy.left && !menuMode.current.left && !pointing.left && !stepping.left && (lc.stick.x || lc.stick.y)) {
       const forward = _v.copy(lc.ray.direction);
       const right = _right.setFromMatrixColumn(lc.rayMatrix, 0).setY(0); // (sideways stays level)
       if (right.lengthSq() > 1e-6) right.normalize();
@@ -456,7 +474,7 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
     // the right stick, whichever way it's tilted more (a push a little off straight doesn't do both), as in
     // physics-sandbox-threejs: up and down rise and come down (no lower than the ground lets you, see
     // EarthPose.follow), as fast as the left moves you; left and right turn
-    const rightFree = rc && !w && !busy.right && !menuMode.current.right && !pointing.right;
+    const rightFree = rc && !w && !busy.right && !menuMode.current.right && !pointing.right && !stepping.right;
     if (rightFree && Math.abs(rc.stick.y) > Math.abs(rc.stick.x)) {
       pose.rise(-rc.stick.y * speed); // (stick y is negative pushed up)
     } else if (rightFree && rc.stick.x) {

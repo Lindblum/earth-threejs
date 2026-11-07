@@ -1,11 +1,13 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
-// (drawn on a canvas): four groups, Location, Map, Display and Accessibility, each
+// (drawn on a canvas): five groups, Location, Map, Controls, Display and Accessibility, each
 // opening a list of setting buttons beneath it, each "Name: Value". A
 // dropdown opens a list of choices beneath it (a chevron on its right); a
 // slider sets a value along its track; the rest toggle when pressed.
 
 import { XR_RESOLUTION } from './xrResolution.js';
 import { IMAGERY, IMAGERY_IDS } from './sources.js';
+import { INPUT_NAMES, controlsGuide } from './controlsGuide.js';
+import { CONTROLS } from './controls.js';
 
 export const MENU_TITLE = 'Earth';
 
@@ -192,7 +194,7 @@ export function pickedChoice(items, pickId) {
 }
 
 /**
- * Items: the groups Location, Map, Display and Accessibility, { id, label, icon, group: { open, items } },
+ * Items: the groups Location, Map, Controls, Display and Accessibility, { id, label, icon, group: { open, items } },
  * which, when open (in `state.groups`), list their settings beneath, indented like
  * a dropdown's choices. Settings: { id, label ("Name: Value", see splitLabel),
  * icon, disabled?, title?, dropdown?, slider? }. `slider`: { min, max, step, value }. `dropdown`: { open, options: [{ id,
@@ -208,9 +210,19 @@ export function menuItems(state, env) {
     icon,
     group: { open: state.groups.includes(id), items: ids.map((setting) => settings[setting]) },
   });
+  // Controls: no settings, but a drawing of what the input last touched does (controlsGuide.js)
+  const input = env.input ?? 'mk';
+  const controlsOpen = state.groups.includes('controls');
+  const controls = {
+    id: 'controls',
+    label: `Controls: ${INPUT_NAMES[input]}`,
+    icon: 'controls',
+    group: { open: controlsOpen, items: [], guide: controlsOpen ? controlsGuide(input, CONTROLS) : null },
+  };
   return [
     group('location', 'Location', 'location', ['myLocation', 'approximate', 'realSize']),
     group('map', 'Map', 'layers', ['imagery', 'terrain', 'clouds', 'constellations', 'detail', 'tileMemory', 'clearCache']),
+    controls,
     group('display', 'Display', 'display', ['view', 'background', 'colorMatch', 'stats', 'vsync', 'xrResolution']),
     group('accessibility', 'Accessibility', 'accessibility', ['volume', 'vibration', 'textSize', 'controllerGuide']),
   ];
@@ -224,13 +236,13 @@ function settingsById(state, env) {
     {
       id: 'myLocation',
       label: state.locating === 'device' ? 'My Location: Finding…' : 'My Location',
-      icon: 'location',
+      icon: 'myLocation',
       title: 'Go to where this device is (it asks for permission to use its location)',
     },
     {
       id: 'approximate',
       label: state.locating === 'network' ? 'Approximate Location: Finding…' : 'Approximate Location',
-      icon: 'globe',
+      icon: 'approximate',
       title: 'Go back to where you started: roughly where you are, from your network address',
     },
     { id: 'realSize', label: '1:1 Scale', icon: 'realSize', title: 'The world at real size, standing on the ground where you are' },
@@ -273,7 +285,7 @@ function settingsById(state, env) {
     {
       id: 'detail',
       label: `Detail: ${percent(state.detail)}`,
-      icon: 'detailOn',
+      icon: 'detail',
       slider: { ...DETAIL, value: state.detail },
       title: 'How sharp the ground is drawn: more loads finer tiles further off; less is faster',
     },
@@ -366,7 +378,7 @@ function settingsById(state, env) {
     },
     {
       id: 'controllerGuide',
-      label: `Controller Guide: ${state.controllerGuide ? 'On' : 'Off'}`,
+      label: `XR Control Guides: ${state.controllerGuide ? 'On' : 'Off'}`,
       icon: state.controllerGuide ? 'controllerGuideOn' : 'controllerGuideOff',
       title: "In XR, labels beside the controllers' buttons saying what they do",
     },
@@ -402,5 +414,6 @@ export function possibleLabels(env) {
   labels.add(`Vibration: ${percent(VIBRATION.max)}`);
   labels.add(`Volume: ${percent(VOLUME.max)}`);
   labels.add(`XR Resolution: ${percent(XR_RESOLUTION.max)} (on release)`);
+  for (const name of Object.values(INPUT_NAMES)) labels.add(`Controls: ${name}`);
   return [...labels];
 }

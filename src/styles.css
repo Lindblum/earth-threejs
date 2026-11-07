@@ -12,6 +12,7 @@
   --ui-panel-pad: 10px;
   --ui-indent: 16px; /* an open group's settings or a dropdown's choices */
   --ui-field-h: calc(30px * var(--text-scale)); /* every field's height (more only if a slider's track wraps beneath) */
+  --ui-icon: calc(20px * var(--text-scale)); /* every field icon, the corner toggles' too */
   --ui-radius: 8px;
   --ui-panel-radius: 12px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -117,7 +118,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.14);
   text-align: left;
-  font-size: calc(14.5px * var(--text-scale));
+  font-size: calc(14px * var(--text-scale));
 }
 .menu-btn:hover:not(:disabled),
 .menu-btn:focus-visible:not(:disabled),
@@ -171,6 +172,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-option .option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .icon { display: inline-flex; flex: none; align-items: center; line-height: 0; }
 .icon svg { display: block; }
+.menu-btn > .icon svg, .hud .collapse .icon svg { width: var(--ui-icon); height: var(--ui-icon); } /* fields' and corner toggles' icons */
 
 .note { margin: 8px 0 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.45; }
 
@@ -266,3 +268,6 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 /* lit by the keys (see useMenuKeys in App.jsx): as if pointed at, no browser ring */
 .hud button:focus-visible, .hud input[type='range']:focus-visible { outline: none; }
 .hud button.collapse:focus-visible { background: rgba(255, 255, 255, 0.2); }
+
+/* Options → Controls: the drawing of what the input last touched does (controlsGuide.js) */
+.controls-guide svg { display: block; width: 100%; max-width: 420px; height: auto; } /* (wider, its text would outgrow the menu's) */
