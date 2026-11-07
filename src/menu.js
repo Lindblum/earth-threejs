@@ -155,6 +155,9 @@ function dropdown(state, id, choices, current) {
   };
 }
 
+/** Whether the mouse is over a windowed panel: the keys that move you work the panel instead (see useMenuKeys in App.jsx, DesktopControls). */
+export const menuPointer = { over: false };
+
 /**
  * What can be focused in `panel` (for the thumbsticks: see Grab.jsx), top to
  * bottom as drawn: its toggle button, and open, its items, the settings of

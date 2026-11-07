@@ -1276,19 +1276,25 @@ export class Globe {
       node = node.children[(cy - node.y * 2) * 2 + (cx - node.x * 2)];
       if (node?.state === 'ready') best = node;
     }
-    if (!best?.heights) return null;
-    const k = 2 ** best.z;
-    const side = SEGMENTS + 1;
-    const fx = THREE.MathUtils.clamp((mx * k - best.x) * SEGMENTS, 0, SEGMENTS);
-    const fy = THREE.MathUtils.clamp((my * k - best.y) * SEGMENTS, 0, SEGMENTS);
-    const i = Math.min(SEGMENTS - 1, Math.floor(fx));
-    const j = Math.min(SEGMENTS - 1, Math.floor(fy));
-    const u = fx - i;
-    const w = fy - j;
-    const hs = best.heights;
-    const a = hs[j * side + i] * (1 - u) + hs[j * side + i + 1] * u;
-    const b = hs[(j + 1) * side + i] * (1 - u) + hs[(j + 1) * side + i + 1] * u;
-    return a * (1 - w) + b * w;
+    return heightAtMercator(best, mx, my);
+  }
+
+  /**
+   * The ground's height as drawn at (lat, lon): the higher of the finest
+   * loaded tile's and the drawn tile's there (a coarser tile, or one still
+   * fading from its parent, can stand above the finest heights); null if
+   * neither has heights. For keeping the viewer above what's to be seen.
+   */
+  surfaceAt(lat, lon) {
+    const fine = this.heightAt(lat, lon);
+    if (!this.drawn?.length) return fine;
+    const mx = mercatorX(angleDiff(lon, 0));
+    const my = mercatorY(THREE.MathUtils.clamp(lat, -MERCATOR_MAX_LAT, MERCATOR_MAX_LAT));
+    if (this.drawnSetOf !== this.drawn) this.drawnSet = new Set(this.drawn);
+    this.drawnSetOf = this.drawn;
+    const node = this.drawnAt(mx, my, this.drawnSet);
+    const shown = heightAtMercator(node, mx, my);
+    return shown == null ? fine : fine == null ? shown : Math.max(fine, shown);
   }
 
   /**
@@ -1310,6 +1316,9 @@ export class Globe {
     return hitAt(hit, pose);
   }
 }
+
+/** A tile's ground height at Web Mercator point (mx, my), or null if it has no heights. */
+const heightAtMercator = (node, mx, my) => (node?.heights ? heightIn(node, mx * 2 ** node.z - node.x, my * 2 ** node.z - node.y) : null);
 
 function hitAt(ecef, pose) {
   const geo = ecefToGeodetic(ecef.x, ecef.y, ecef.z);

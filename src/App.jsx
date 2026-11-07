@@ -37,6 +37,7 @@ import {
   settingItems,
   slideEndId,
   slideId,
+  menuPointer,
   snapToSlider,
   splitLabel,
   viewPanel,
@@ -235,7 +236,7 @@ function useKeyboard(actions) {
   useEffect(() => {
     const keymap = { Enter: actions.toggleMenu, NumpadEnter: actions.toggleMenu, Escape: actions.toggleMenu };
     const onKey = (e) => {
-      if (e.repeat || e.target.closest?.('input, select, textarea')) return;
+      if (e.repeat || e.defaultPrevented || e.target.closest?.('input, select, textarea')) return;
       const action = keymap[e.code];
       if (!action) return;
       e.preventDefault();
@@ -244,6 +245,123 @@ function useKeyboard(actions) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [actions]);
+}
+
+// The windowed panels with the keys that move you (the sticks' stand-ins),
+// while the mouse is over a panel: they work the panel instead of the world,
+// as a stick does in XR while its controller points at one. W / S or up /
+// down step through its buttons, settings and choices, starting at the one
+// under the mouse; A / D or left / right set a slider; Enter or Space presses
+// the one lit; Backspace goes up a level (closes its group or dropdown).
+const MENU_KEYS = {
+  KeyW: 'up',
+  ArrowUp: 'up',
+  KeyS: 'down',
+  ArrowDown: 'down',
+  KeyA: 'left',
+  ArrowLeft: 'left',
+  KeyD: 'right',
+  ArrowRight: 'right',
+  Enter: 'press',
+  NumpadEnter: 'press',
+  Space: 'press',
+  Backspace: 'back',
+};
+const MENU_CONTROLS = '.hud button.collapse, .hud button.menu-btn, .hud .menu-option, .hud input[type="range"]';
+
+/** The keys that move you work the panel under the mouse instead (see above); `selectRef`: ref to onSelect. */
+function useMenuKeys(selectRef) {
+  useEffect(() => {
+    let stack = null; // the panels under the mouse (in 3D: SBS, one eye's copy)
+    let hovered = null; // the control under the mouse, as last seen
+    let started = null; // ...when the keys last took over from it
+    let sliding = null; // a slider being set with the keys: its id
+    const controlOf = (el) => {
+      const c = el?.closest?.('button, label.menu-slider');
+      return c?.matches('label') ? c.querySelector('input') : c;
+    };
+    const controls = () => [...(stack ?? document).querySelectorAll(MENU_CONTROLS)].filter((c) => !c.disabled && !c.closest('.menu-sizer'));
+    const onMove = (e) => {
+      const over = Boolean(e.target.closest?.('.hud'));
+      menuPointer.over = over;
+      if (over) stack = e.target.closest('.hud-stack');
+      hovered = over ? controlOf(e.target) : null;
+    };
+    const onLeave = () => {
+      menuPointer.over = false;
+      hovered = null;
+    };
+    const onKey = (e) => {
+      const action = MENU_KEYS[e.code];
+      if (!action || !menuPointer.over) return;
+      if (e.type === 'keyup') {
+        if (sliding && (action === 'left' || action === 'right')) {
+          selectRef.current?.(slideEndId(sliding));
+          sliding = null;
+        }
+        return;
+      }
+      e.preventDefault(); // (no scrolling, no native presses or slider steps, and the world doesn't move: see DesktopControls)
+      const list = controls();
+      if (!list.length) return;
+      let at = list.indexOf(document.activeElement);
+      // the mouse has moved onto another control since: the keys go on from there
+      if (hovered && hovered !== started && list.includes(hovered)) {
+        at = list.indexOf(hovered);
+        started = hovered;
+        if (action === 'up' || action === 'down') {
+          hovered.focus({ focusVisible: true });
+          playTick();
+          return;
+        }
+      }
+      if (at < 0) {
+        // nothing lit yet, nor under the mouse: up / down light the first
+        if (action === 'up' || action === 'down') {
+          list[0].focus({ focusVisible: true });
+          playTick();
+        }
+        return;
+      }
+      const control = list[at];
+      if (action === 'up' || action === 'down') {
+        const next = list[Math.min(list.length - 1, Math.max(0, at + (action === 'up' ? -1 : 1)))];
+        if (next !== control) {
+          next.focus({ focusVisible: true });
+          next.scrollIntoView({ block: 'nearest' });
+          playTick();
+        }
+      } else if (action === 'left' || action === 'right') {
+        if (control.type !== 'range') return;
+        control.focus({ focusVisible: true });
+        const step = Number(control.step) || 1;
+        const value = Math.min(Number(control.max), Math.max(Number(control.min), +(Number(control.value) + (action === 'left' ? -step : step)).toFixed(4)));
+        if (value === Number(control.value)) return;
+        sliding = control.dataset.id;
+        selectRef.current?.(slideId(sliding, value));
+      } else if (action === 'press') {
+        if (e.repeat || control.type === 'range') return;
+        control.focus({ focusVisible: true });
+        control.click();
+      } else if (action === 'back') {
+        const parent = control.closest('.menu-group, .menu-options')?.previousElementSibling;
+        if (!parent?.matches('button')) return;
+        parent.click();
+        parent.focus({ focusVisible: true });
+      }
+    };
+    window.addEventListener('pointermove', onMove, true);
+    document.documentElement.addEventListener('pointerleave', onLeave);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keyup', onKey, true);
+    return () => {
+      window.removeEventListener('pointermove', onMove, true);
+      document.documentElement.removeEventListener('pointerleave', onLeave);
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keyup', onKey, true);
+      menuPointer.over = false;
+    };
+  }, [selectRef]);
 }
 
 function useXRSupport() {
@@ -316,6 +434,7 @@ function MenuList({ items, onSelect }) {
             step={step}
             value={value}
             aria-label={splitLabel(item.label).name}
+            data-id={item.id}
             onChange={(e) => onSelect(slideId(item.id, Number(e.target.value)))}
             onPointerUp={() => onSelect(slideEndId(item.id))}
             onKeyUp={() => onSelect(slideEndId(item.id))}
@@ -571,6 +690,8 @@ function useFps(active) {
 export default function App() {
   const [viewerState, actions] = useViewerState();
   useKeyboard(actions);
+  const selectRef = useRef(null);
+  useMenuKeys(selectRef);
   useEffect(initSound, []);
   const pose = useMemo(() => new EarthPose(), []);
   const globeRef = useRef(null);
@@ -829,6 +950,7 @@ export default function App() {
     else if (id === 'controllerGuide') actions.toggleControllerGuide();
     else if (id === 'vsync') actions.toggleVSync();
   };
+  selectRef.current = onSelect;
   const slideTo = (id, value) => {
     if (id === 'textSize') actions.dragTextSize(value);
     else if (id === 'vibration') actions.setVibration(value);

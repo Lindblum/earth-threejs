@@ -541,6 +541,7 @@ export function XRPanel({ panel, onSelect, groupRef, focusKey }) {
       <mesh
         ref={mesh}
         position={[centre[0], centre[1], 0]}
+        userData={{ pick: gazePick }} // (the control a ray hit is on: the sticks start there, see Grab.jsx)
         onPointerDown={(e) => {
           const key = pick(e);
           if (key === RESIZE) {

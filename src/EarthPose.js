@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ecefToGeodetic, geodeticToEcef, surfaceNormal } from './geo.js';
+import { WGS84_A, ecefToGeodetic, geodeticToEcef, surfaceNormal } from './geo.js';
 
 // Where the Earth is in the world. The viewer stays put (the XR origin is
 // never moved or scaled); the Earth moves, turns and scales round them, so
@@ -26,7 +26,12 @@ import { ecefToGeodetic, geodeticToEcef, surfaceNormal } from './geo.js';
 export const SCALE = Object.freeze({ min: 5e-8, max: 10 }); // the smallest (a globe about 60 cm across) and biggest the world gets
 const REANCHOR_MAX = 0.002; // rad: the ground beneath the viewer becomes the anchor when it's this near round the Earth
 const HEIGHT_EASE = 10; // per second: the ground beneath you eases back to its height as you travel over hills
-const HEAD_CLEARANCE = 0.05; // world m: a head that goes nearer the ground than this (or under it) is pushed back out
+// A head that goes nearer the ground than this (or under it) is pushed back
+// out: past the camera's near plane (5 cm, its corners up to about 10 cm off
+// in a headset's wide view), so the ground's never cut open to show the void.
+const HEAD_CLEARANCE = 0.15; // world m
+const AROUND = 0.25; // world m: the ground this far round the head counts too (a slope rising beside it)
+const AROUND_POINTS = 6;
 
 const _y = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -211,14 +216,16 @@ export class EarthPose {
    * down so that ground stays at `groundY`, the height it was at when last
    * scaled or turned. So travelling follows the ground's rise and fall, and
    * finer heights loading don't move you. A head nearer the ground than
-   * HEAD_CLEARANCE (or under it) is pushed back out. Sets `clearance` (the
+   * HEAD_CLEARANCE (or under it) is pushed back out: nearer the ground as
+   * drawn (`surfaceAt(lat, lon)`, else heightAt), there or within AROUND of
+   * it. Sets `clearance` (the
    * head's height over the ground beneath it, world m) and `beneath`.
    *
    * `upright` (XR): first the world's turned about the head so the Earth's
    * centre is straight below it (the ground beneath it level), whatever the
    * scale; then the anchor can always be moved beneath the head.
    */
-  follow(head, heightAt, dt, upright = false) {
+  follow(head, heightAt, dt, upright = false, surfaceAt = null) {
     const e = this.toEcef(head, new THREE.Vector3());
     const geo = ecefToGeodetic(e.x, e.y, e.z);
     const [hx, hy, hz] = surfaceNormal(geo.lat, geo.lon);
@@ -256,15 +263,30 @@ export class EarthPose {
     this.anchored = true;
     const dy = this.groundY - this.anchor.y;
     if (Math.abs(dy) > 1e-6) this.anchor.y += dy * (1 - Math.exp(-HEIGHT_EASE * dt));
-    if (head.y - this.anchor.y < HEAD_CLEARANCE) {
-      this.anchor.y = head.y - HEAD_CLEARANCE;
+    // (the highest ground drawn at and round the head, above the ground the anchor stands on)
+    const lift = Math.max(0, this.floorNear(geo, surfaceAt ?? heightAt) - ground) * this.scale;
+    if (head.y - this.anchor.y - lift < HEAD_CLEARANCE) {
+      this.anchor.y = head.y - HEAD_CLEARANCE - lift;
       this.groundY = Math.min(this.groundY, this.anchor.y);
     }
     this.clearance = head.y - this.anchor.y;
     this.update();
   }
 
-  /** What's kept between visits: { lat, lon (beneath the viewer), heading, scale } (degrees). */
+  /** The highest ground (m, by `surfaceAt`) at `geo` and AROUND (world m) round it; -Infinity where none's loaded. */
+  floorNear(geo, surfaceAt) {
+    let top = surfaceAt(geo.lat, geo.lon) ?? -Infinity;
+    const r = AROUND / this.scale / WGS84_A; // rad round the Earth
+    const cosLat = Math.max(Math.cos(geo.lat), 1e-6);
+    for (let i = 0; i < AROUND_POINTS; i++) {
+      const a = (i / AROUND_POINTS) * 2 * Math.PI;
+      const h = surfaceAt(geo.lat + r * Math.cos(a), geo.lon + (r * Math.sin(a)) / cosLat);
+      if (h != null && h > top) top = h;
+    }
+    return top;
+  }
+
+  /** What's kept between visits:{ lat, lon (beneath the viewer), heading, scale } (degrees). */
   toJSON() {
     return { lat: THREE.MathUtils.radToDeg(this.beneath.lat), lon: THREE.MathUtils.radToDeg(this.beneath.lon), heading: THREE.MathUtils.radToDeg(this.heading), scale: this.scale };
   }

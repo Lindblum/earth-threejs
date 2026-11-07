@@ -27,6 +27,7 @@ const TEXTS = {
     'xr-standard-squeeze': GRIP,
     'xr-standard-thumbstick': `Move where it points
 (point down: come down)
+At a menu: step through it
 Press: this hand's menus / back
 Holding a menu: push / pull, roll`,
     'x-button': 'In menus: choose',
@@ -35,7 +36,9 @@ Holding a menu: push / pull, roll`,
   right: {
     'xr-standard-trigger': TRIGGER,
     'xr-standard-squeeze': GRIP,
-    'xr-standard-thumbstick': `Left / right: turn
+    'xr-standard-thumbstick': `Up / down: rise, come down
+Left / right: turn
+At a menu: step through it
 Press: this hand's menus / back
 Holding a menu: push / pull, roll`,
     'a-button': 'In menus: choose',

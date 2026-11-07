@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Globe } from './Globe.js';
 import { WGS84_A } from './geo.js';
+import { menuPointer } from './menu.js';
 
 // The globe in the scene: placed each frame by the Earth's pose (after the
 // controls have moved it), its tiles picked for the camera (the headset's in
@@ -56,7 +57,7 @@ export function Earth({ pose, globeRef, options, onStatus }) {
     const xr = gl.xr.isPresenting;
     const camera = xr ? gl.xr.getCamera() : state.camera;
     const head = camera.getWorldPosition(new THREE.Vector3());
-    pose.follow(head, (lat, lon) => globe.heightAt(lat, lon), Math.min(delta, 0.1), xr); // (in XR, the Earth's centre kept straight below you)
+    pose.follow(head, (lat, lon) => globe.heightAt(lat, lon), Math.min(delta, 0.1), xr, (lat, lon) => globe.surfaceAt(lat, lon)); // (in XR, the Earth's centre kept straight below you)
     // an eye's height in pixels
     const eye = xr ? camera.cameras?.[0]?.viewport?.w : null;
     globe.update(camera, pose, eye || size.height * viewport.dpr);
@@ -189,7 +190,9 @@ export function DesktopControls({ pose, globeRef, onScale }) {
     const onContext = (e) => e.preventDefault();
     const onKey = (e) => {
       if (e.target.closest?.('input, select, textarea')) return;
-      if (e.type === 'keydown') keys.current.add(e.code);
+      if (e.type === 'keydown') {
+        if (!menuPointer.over) keys.current.add(e.code); // (over a panel, the keys work it: see useMenuKeys in App.jsx)
+      }
       else keys.current.delete(e.code);
     };
     const onBlur = () => keys.current.clear();
@@ -224,6 +227,7 @@ export function DesktopControls({ pose, globeRef, onScale }) {
     camera.updateMatrixWorld();
     const k = keys.current;
     if (!k.size) return;
+    if (menuPointer.over) return k.clear(); // (the mouse moved onto a panel: the keys are its now)
     const held = (...codes) => codes.some((c) => k.has(c));
     const forward = (held('KeyW', 'ArrowUp') ? 1 : 0) - (held('KeyS', 'ArrowDown') ? 1 : 0);
     const right = (held('KeyD', 'ArrowRight') ? 1 : 0) - (held('KeyA', 'ArrowLeft') ? 1 : 0);

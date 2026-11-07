@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { pulse, readControllers } from './grip.js';
-import { focusables, slideEndId, slideId } from './menu.js';
+import { focusables, parseSlide, slideEndId, slideId } from './menu.js';
 
 // Touch controllers in XR: getting about the world, and the XR panels (as in
 // grid-game-threejs and physics-sandbox-threejs).
@@ -20,11 +20,15 @@ import { focusables, slideEndId, slideId } from './menu.js';
 // The sticks: the left moves you the way the left controller points (up and
 // down too: point down to come down to the ground; pushed sideways, sideways),
 // faster the higher you are; either trigger, pulled, speeds that up (to
-// BOOST times at full pull). The right, left and right, turns you about the
-// line from the Earth's centre up through your head. Pressed in (L3 / R3), a stick works the panels docked on
-// its controller instead (its probe turns blue): up and down go through their
-// buttons, settings and choices (left and right set a slider), A / X presses
-// the one lit, B / Y goes up a level. Pressed again, back to moving.
+// BOOST times at full pull). The right, up and down, raises and lowers you
+// (as fast, boosted too); left and right, turns you about the line from the
+// Earth's centre up through your head. While its controller
+// points at a panel, a stick works that panel instead of moving you: the lit
+// control starts at the one pointed at, up and down go through its buttons,
+// settings and choices (left and right set a slider), A / X presses the one
+// lit, B / Y goes up a level. Pressed in (L3 / R3), a stick works the panels
+// docked on its controller wherever it points (its probe turns blue); pressed
+// again, back to moving.
 //
 // The panels dock on a controller, stacked upward, tipped toward the eyes:
 // the View panel and Options above it on the left. A grip pressed while that
@@ -131,6 +135,7 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
   const steps = useRef({});
   const sliding = useRef({});
   const reportedFocus = useRef('');
+  const pointedAt = useRef({}); // hand -> the control its ray was last on, "panel:id" (the lit one follows the ray as it moves)
   const docks = useRef(Object.fromEntries(Object.entries(FIRST_DOCK).map(([key, hand]) => [key, { dock: hand }])));
   const taps = useRef({});
   const pressed = useRef({});
@@ -155,15 +160,23 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
       _local.multiplyMatrices(_originInverse, world).decompose(groupOf(key).position, groupOf(key).quaternion, groupOf(key).scale);
     };
 
-    /** The panel `c` points at or touches (nearest): { key, point (world), distance } or null. */
-    const panelAt = (c) => {
+    /** The panel `c`'s ray points at (nearest): { key, point (world), distance, id (the control there, or null) } or null. */
+    const panelPointed = (c) => {
       let best = null;
       raycaster.ray.copy(c.ray);
       raycaster.far = Infinity;
       for (const key of shownPanels()) {
         const hit = raycaster.intersectObject(groupOf(key), true)[0];
-        if (hit && (!best || hit.distance < best.distance)) best = { key, point: hit.point.clone(), distance: hit.distance };
+        if (hit && (!best || hit.distance < best.distance)) best = { key, hit };
       }
+      if (!best) return null;
+      const id = best.hit.object.userData.pick?.(best.hit) ?? null;
+      return { key: best.key, point: best.hit.point.clone(), distance: best.hit.distance, id: parseSlide(id)?.id ?? id };
+    };
+
+    /** The panel `c` points at or touches (nearest): { key, point (world), distance } or null. */
+    const panelAt = (c) => {
+      const best = panelPointed(c);
       if (best) return best;
       for (const key of shownPanels()) {
         const g = groupOf(key);
@@ -354,6 +367,8 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
       }
       return 0;
     };
+    const pointing = {}; // hand -> the panel its ray is on: its stick works that panel, not the world
+    let stepped = false; // (a stick or button moved the lit control, not the ray: that ticks)
     for (const hand of HANDS) {
       const c = controllers[hand];
       if (pressedNow(hand, 'stickPress')) {
@@ -361,29 +376,38 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
         buzz(hand, menuMode.current[hand] ? PULSE.dock : PULSE.detach);
       }
       probes[hand]?.current?.material.color.set(menuMode.current[hand] ? PROBE_MENU_COLOR : PROBE_COLOR);
-      if (!c || !menuMode.current[hand] || busy[hand]) {
-        if (!menuMode.current[hand]) focus.current[hand] = null;
+      const at = c && !busy[hand] ? panelPointed(c) : null;
+      pointing[hand] = at;
+      if (!c || busy[hand] || (!menuMode.current[hand] && !at)) {
+        focus.current[hand] = null;
+        pointedAt.current[hand] = null;
         continue;
       }
+      // pointed at a panel: that one; else (pressed in) the ones docked here, or all
       const mine = DOCK_STACK.filter((key) => docks.current[key]?.on === hand && groupOf(key) && isShown(groupOf(key))).reverse();
-      const keys = mine.length ? mine : shownPanels();
+      const keys = at ? [at.key] : mine.length ? mine : shownPanels();
       const list = keys.flatMap((key) => (menus?.current[key] ? focusables(menus.current[key]).map((f) => ({ ...f, key })) : []));
       if (!list.length) continue;
+      // the ray moved onto another control: that one's lit, and the stick goes on from there
+      const ray = at?.id != null ? `${at.key}:${at.id}` : null;
+      if (ray && ray !== pointedAt.current[hand] && list.some((x) => x.key === at.key && x.id === at.id)) focus.current[hand] = { key: at.key, id: at.id };
+      pointedAt.current[hand] = ray;
       const f = focus.current[hand];
       let i = Math.max(0, list.findIndex((x) => x.key === f?.key && x.id === f?.id));
       const dy = step(hand, 'y', c.stick.y);
       if (dy) {
         i = THREE.MathUtils.clamp(i + dy, 0, list.length - 1);
         buzz(hand, PULSE.zone);
+        stepped = true;
       }
-      const at = list[i];
+      const item = list[i];
       const dx = step(hand, 'x', c.stick.x);
-      if (dx && at.slider) {
-        const { min, max, step: by, value } = at.slider;
+      if (dx && item.slider) {
+        const { min, max, step: by, value } = item.slider;
         const v = THREE.MathUtils.clamp(+(value + dx * by).toFixed(4), min, max);
         if (v !== value) {
-          onSelect?.(slideId(at.id, v));
-          sliding.current[hand] = at.id;
+          onSelect?.(slideId(item.id, v));
+          sliding.current[hand] = item.id;
           buzz(hand, PULSE.zone);
         }
       }
@@ -391,15 +415,16 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
         onSelect?.(slideEndId(sliding.current[hand]));
         sliding.current[hand] = null;
       }
-      if (pressedNow(hand, 'primary') && !at.slider) {
-        onSelect?.(at.id);
+      if (pressedNow(hand, 'primary') && !item.slider) {
+        onSelect?.(item.id);
         buzz(hand, PULSE.grab);
       }
-      let lit = at;
-      if (pressedNow(hand, 'secondary') && at.parent) {
-        onSelect?.(at.parent);
-        lit = { key: at.key, id: at.parent };
+      let lit = item;
+      if (pressedNow(hand, 'secondary') && item.parent) {
+        onSelect?.(item.parent);
+        lit = { key: item.key, id: item.parent };
         buzz(hand, PULSE.detach);
+        stepped = true;
       }
       focus.current[hand] = { key: lit.key, id: lit.id };
     }
@@ -412,15 +437,15 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
     const litKey = JSON.stringify(lit);
     if (litKey !== reportedFocus.current) {
       reportedFocus.current = litKey;
-      onFocus?.(lit);
+      onFocus?.(lit, stepped);
     }
 
     // moving the way the left controller points (up and down too), faster the higher you are, and with a trigger pulled
     const lc = controllers.left;
     const rc = controllers.right;
-    if (lc && !w && !busy.left && !menuMode.current.left && (lc.stick.x || lc.stick.y)) {
-      const boost = 1 + (BOOST - 1) * Math.max(lc.triggerValue ?? 0, rc?.triggerValue ?? 0);
-      const speed = Math.max(MOVE_SPEED, MOVE_PER_HEIGHT * pose.clearance) * boost * dt;
+    const boost = 1 + (BOOST - 1) * Math.max(lc?.triggerValue ?? 0, rc?.triggerValue ?? 0);
+    const speed = Math.max(MOVE_SPEED, MOVE_PER_HEIGHT * pose.clearance) * boost * dt;
+    if (lc && !w && !busy.left && !menuMode.current.left && !pointing.left && (lc.stick.x || lc.stick.y)) {
       const forward = _v.copy(lc.ray.direction);
       const right = _right.setFromMatrixColumn(lc.rayMatrix, 0).setY(0); // (sideways stays level)
       if (right.lengthSq() > 1e-6) right.normalize();
@@ -428,8 +453,14 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
       pose.rise(move.y);
       pose.travel(move.setY(0));
     }
-    // turning about the line from the Earth's centre up through the head (pushed right: turned right)
-    if (rc && !w && !busy.right && !menuMode.current.right && rc.stick.x) {
+    // the right stick, whichever way it's tilted more (a push a little off straight doesn't do both), as in
+    // physics-sandbox-threejs: up and down rise and come down (no lower than the ground lets you, see
+    // EarthPose.follow), as fast as the left moves you; left and right turn
+    const rightFree = rc && !w && !busy.right && !menuMode.current.right && !pointing.right;
+    if (rightFree && Math.abs(rc.stick.y) > Math.abs(rc.stick.x)) {
+      pose.rise(-rc.stick.y * speed); // (stick y is negative pushed up)
+    } else if (rightFree && rc.stick.x) {
+      // turning about the line from the Earth's centre up through the head (pushed right: turned right)
       gl.xr.getCamera().getWorldPosition(_pos);
       const axis = _axis.copy(_pos).sub(pose.centre(_centre));
       if (axis.lengthSq() > 1e-12) pose.turnAboutAxis(_pos, axis.normalize(), rc.stick.x * TURN_SPEED * dt);

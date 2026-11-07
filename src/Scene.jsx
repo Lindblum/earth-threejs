@@ -216,9 +216,9 @@ export default function Scene({ state, panels, onSelect, menuOverlay, phone, pos
         panels={panelRefs}
         menus={menus}
         onSelect={onSelect}
-        onFocus={(lit) => {
+        onFocus={(lit, stepped) => {
           setStickFocus(lit);
-          if (Object.keys(lit).length) playTick(); // (a step through a panel with a thumbstick)
+          if (stepped) playTick(); // (a step through a panel with a thumbstick; not the ray passing over it)
         }}
         textSize={state.textSize}
         homeScale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}

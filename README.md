@@ -51,10 +51,11 @@ Credits for what's showing are at the bottom right (in XR, under the Options tit
 | --- | --- | --- |
 | Scale the world | Wheel (toward the point under the mouse); R / F | Both grips in mid-air: hands apart (bigger) / together (smaller) |
 | Move | Drag (the ground follows the mouse); WASD / arrows | Left stick: the way the left controller points, up and down too (point down to come down to the ground); faster the higher you are, and faster still with a trigger pulled (up to 8×) |
+| Up and down | R / F zooms (the window's camera stays at eye height) | Right stick up / down: rise and come down (as fast as the left stick moves you, triggers too), no nearer the ground than 15 cm |
 | Turn | Right-drag or Ctrl-drag sideways (turning on the spot); Q / E | Right stick left / right (about the line from the Earth's centre up through you); or both grips, turning your hands |
 | Tilt | Right-drag up / down | Your head |
 | Real size | Options' corner (the scale), or Location → 1:1 Scale | the same |
-| Menus | `Enter` / `Esc` toggles Options | Options docks on the left controller; stick pressed in (L3 / R3) works it; grip a panel to move it, tap twice to dock / undock |
+| Menus | `Enter` / `Esc` toggles Options; with the mouse over a panel, WASD / arrows step through it and set sliders (instead of moving), `Enter` / `Space` presses, `Backspace` goes up a level | Options docks on the left controller; a stick whose controller points at a panel steps through it (instead of moving or turning), A / X presses, B / Y goes up a level; pressed in (L3 / R3), a stick works its own controller's panels; grip a panel to move it, tap twice to dock / undock |
 
 ## Options
 
