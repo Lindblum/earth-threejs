@@ -56,7 +56,7 @@ export function Earth({ pose, globeRef, options, onStatus }) {
     const xr = gl.xr.isPresenting;
     const camera = xr ? gl.xr.getCamera() : state.camera;
     const head = camera.getWorldPosition(new THREE.Vector3());
-    pose.follow(head, (lat, lon) => globe.heightAt(lat, lon), Math.min(delta, 0.1));
+    pose.follow(head, (lat, lon) => globe.heightAt(lat, lon), Math.min(delta, 0.1), xr); // (in XR, the Earth's centre kept straight below you)
     // an eye's height in pixels
     const eye = xr ? camera.cameras?.[0]?.viewport?.w : null;
     globe.update(camera, pose, eye || size.height * viewport.dpr);
@@ -76,7 +76,7 @@ export function Earth({ pose, globeRef, options, onStatus }) {
     const now = state.clock.elapsedTime;
     if (onStatus && now - told.current > REPORT_S) {
       told.current = now;
-      onStatus({ lat: pose.lat, lon: pose.lon, scale: pose.scale, clearance: pose.clearance, heading: pose.heading, stats: { ...globe.stats } });
+      onStatus({ lat: pose.beneath.lat, lon: pose.beneath.lon, scale: pose.scale, clearance: pose.clearance, heading: pose.heading, stats: { ...globe.stats } });
     }
   });
 

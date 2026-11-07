@@ -26,8 +26,7 @@ import { ecefToGeodetic, geodeticToEcef, surfaceNormal } from './geo.js';
 export const SCALE = Object.freeze({ min: 5e-8, max: 10 }); // the smallest (a globe about 60 cm across) and biggest the world gets
 const REANCHOR_MAX = 0.002; // rad: the ground beneath the viewer becomes the anchor when it's this near round the Earth
 const HEIGHT_EASE = 10; // per second: the ground beneath you eases back to its height as you travel over hills
-const HEAD_CLEARANCE = 0.25; // world m: the viewer's head is kept this far above the ground (at near real sizes)
-const CLEARANCE_SCALE = 1e-4; // ...from this scale up (smaller, the head may go into a hand-held globe)
+const HEAD_CLEARANCE = 0.05; // world m: a head that goes nearer the ground than this (or under it) is pushed back out
 
 const _y = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -63,6 +62,8 @@ export class EarthPose {
     this.groundY = 0; // the world height the ground beneath the viewer is kept at (see follow)
     this.anchored = false; // the anchor is beneath the viewer
     this.regrounded = true; // scaled or turned since: groundY taken afresh
+    this.beneath = { lat: 0, lon: 0 }; // the point on the ground beneath the viewer's head (rad; see follow)
+    this.head = new THREE.Vector3(0, 1.6, 0); // the viewer's head (world), as last followed
     this.setLocation(0, 0);
   }
 
@@ -146,6 +147,27 @@ export class EarthPose {
     this.update();
   }
 
+  /** The world turned `angle` (rad) about the line through world point `pivot` along `axis` (a unit vector, world). */
+  turnAboutAxis(pivot, axis, angle) {
+    _q.setFromAxisAngle(axis, angle);
+    this.q.premultiply(_q);
+    this.anchor.sub(pivot).applyQuaternion(_q).add(pivot);
+    this.regrounded = true;
+    this.update();
+  }
+
+  /** The viewer rises `dy` (world m; down if less than 0): the world moves the other way, the ground followed at its new height. */
+  rise(dy) {
+    this.anchor.y -= dy;
+    this.groundY -= dy;
+    this.update();
+  }
+
+  /** The world's centre, in the world, into `out`. */
+  centre(out = new THREE.Vector3()) {
+    return out.set(0, 0, 0).applyMatrix4(this.matrix);
+  }
+
   /** The world scaled by `factor` about world point `pivot` (within SCALE); returns the factor applied. */
   scaleAbout(pivot, factor) {
     const scale = THREE.MathUtils.clamp(this.scale * factor, SCALE.min, SCALE.max);
@@ -188,22 +210,40 @@ export class EarthPose {
    * height, null if not loaded), with no jump; then the world eased up or
    * down so that ground stays at `groundY`, the height it was at when last
    * scaled or turned. So travelling follows the ground's rise and fall, and
-   * finer heights loading don't move you. The head's kept clear of the
-   * ground near real sizes. Sets `clearance`: the head's height over the
-   * ground beneath it, world m.
+   * finer heights loading don't move you. A head nearer the ground than
+   * HEAD_CLEARANCE (or under it) is pushed back out. Sets `clearance` (the
+   * head's height over the ground beneath it, world m) and `beneath`.
+   *
+   * `upright` (XR): first the world's turned about the head so the Earth's
+   * centre is straight below it (the ground beneath it level), whatever the
+   * scale; then the anchor can always be moved beneath the head.
    */
-  follow(head, heightAt, dt) {
+  follow(head, heightAt, dt, upright = false) {
     const e = this.toEcef(head, new THREE.Vector3());
     const geo = ecefToGeodetic(e.x, e.y, e.z);
-    const [ux, uy, uz] = surfaceNormal(this.lat, this.lon);
     const [hx, hy, hz] = surfaceNormal(geo.lat, geo.lon);
+    this.beneath.lat = geo.lat;
+    this.beneath.lon = geo.lon;
+    this.head.copy(head);
+    if (upright) {
+      // (a turn about the head: the head's own place on the Earth doesn't change)
+      const n = _n.set(hx, hy, hz).applyQuaternion(this.q);
+      if (n.y < 1 - 1e-12) {
+        _q.setFromUnitVectors(n, _y);
+        this.q.premultiply(_q).normalize();
+        this.anchor.sub(head).applyQuaternion(_q).add(head);
+        this.update();
+      }
+    }
+    const [ux, uy, uz] = surfaceNormal(this.lat, this.lon);
     const apart = Math.acos(THREE.MathUtils.clamp(ux * hx + uy * hy + uz * hz, -1, 1));
-    if (apart >= REANCHOR_MAX) {
+    const near = apart < REANCHOR_MAX;
+    if (!near && !upright) {
       this.anchored = false;
       this.clearance = (geo.h - (heightAt(geo.lat, geo.lon) ?? 0)) * this.scale;
       return;
     }
-    const ground = heightAt(geo.lat, geo.lon) ?? this.height;
+    const ground = heightAt(geo.lat, geo.lon) ?? (near ? this.height : 0);
     const g = new THREE.Vector3().fromArray(geodeticToEcef(geo.lat, geo.lon, 0, _arr));
     this.toWorld(_v.set(hx, hy, hz).multiplyScalar(ground).add(g), this.anchor);
     this.p.copy(g);
@@ -211,12 +251,12 @@ export class EarthPose {
     this.lon = geo.lon;
     this.height = ground;
     this.level();
-    if (this.regrounded || !this.anchored) this.groundY = this.anchor.y;
+    if (this.regrounded || !this.anchored || !near) this.groundY = this.anchor.y;
     this.regrounded = false;
     this.anchored = true;
     const dy = this.groundY - this.anchor.y;
     if (Math.abs(dy) > 1e-6) this.anchor.y += dy * (1 - Math.exp(-HEIGHT_EASE * dt));
-    if (this.scale >= CLEARANCE_SCALE && head.y - this.anchor.y < HEAD_CLEARANCE) {
+    if (head.y - this.anchor.y < HEAD_CLEARANCE) {
       this.anchor.y = head.y - HEAD_CLEARANCE;
       this.groundY = Math.min(this.groundY, this.anchor.y);
     }
@@ -224,8 +264,8 @@ export class EarthPose {
     this.update();
   }
 
-  /** What's kept between visits: { lat, lon, heading, scale } (degrees). */
+  /** What's kept between visits: { lat, lon (beneath the viewer), heading, scale } (degrees). */
   toJSON() {
-    return { lat: THREE.MathUtils.radToDeg(this.lat), lon: THREE.MathUtils.radToDeg(this.lon), heading: THREE.MathUtils.radToDeg(this.heading), scale: this.scale };
+    return { lat: THREE.MathUtils.radToDeg(this.beneath.lat), lon: THREE.MathUtils.radToDeg(this.beneath.lon), heading: THREE.MathUtils.radToDeg(this.heading), scale: this.scale };
   }
 }

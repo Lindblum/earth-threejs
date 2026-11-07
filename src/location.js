@@ -6,6 +6,8 @@
 // browser asks permission for: used by Location → My Location.
 // Either resolves { lat, lon } in degrees (and a `place` name if known), or null.
 
+import { readSetting, writeSetting } from './settings.js';
+
 const TIMEOUT_MS = 4000;
 const LAST_KEY = 'earth.lastView';
 
@@ -58,20 +60,12 @@ export function preciseLocation() {
   });
 }
 
-/** The view last left (EarthPose.toJSON), kept for when no location can be found. */
+/** The view last left (EarthPose.toJSON), kept (in a cookie) for when no location can be found. */
 export function lastView() {
-  try {
-    const v = JSON.parse(localStorage.getItem(LAST_KEY));
-    return v && Number.isFinite(v.lat) && Number.isFinite(v.lon) ? v : null;
-  } catch {
-    return null;
-  }
+  const v = readSetting(LAST_KEY);
+  return v && Number.isFinite(v.lat) && Number.isFinite(v.lon) ? v : null;
 }
 
 export function keepView(view) {
-  try {
-    localStorage.setItem(LAST_KEY, JSON.stringify(view));
-  } catch {
-    // (not kept)
-  }
+  writeSetting(LAST_KEY, view);
 }

@@ -10,6 +10,7 @@ import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from
 import { Stopped, rememberError, takeLastError } from './Recovery.jsx';
 import { setVibration } from './grip.js';
 import { initSound, playTick, setVolume, wakeSoundInXR } from './sound.js';
+import { readSetting, writeSetting } from './settings.js';
 import { EarthPose } from './EarthPose.js';
 import { DEG, formatLatLon } from './geo.js';
 import { IMAGERY, credits, imageryDate } from './sources.js';
@@ -60,7 +61,7 @@ const xrOptions = {
   frameRate: 'high',
   emulate: import.meta.env.DEV ? 'metaQuest3' : false,
   foveation: 0.5,
-  frameBufferScaling: undefined, // Options → Video → XR Resolution, set as each session starts (see enterXR)
+  frameBufferScaling: undefined, // Options → Display → XR Resolution, set as each session starts (see enterXR)
 };
 const store = createXRStore(xrOptions);
 if (import.meta.env.DEV) window.__xrStore = store;
@@ -85,28 +86,16 @@ function isHeadsetBrowser() {
 
 const toggleIn = (id) => (list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
-/** Settings kept in this browser, read back with `fallback` for anything missing. */
-function loadSetting(key, fallback) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(key));
-    return saved ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
+/** Settings kept in this browser (cookies: see settings.js), read back with `fallback` for anything missing. */
+const loadSetting = (key, fallback) => readSetting(key, fallback);
 function useKept(key, initial) {
   const [value, setValue] = useState(initial);
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // (not kept)
-    }
-  }, [key, value]);
+  useEffect(() => writeSetting(key, value), [key, value]);
   return [value, setValue];
 }
 
 const MAP_KEY = 'earth.map';
+const MAP_VERSION = 2; // (2: Color Blending off by default)
 const ACCESSIBILITY_KEY = 'earth.accessibility';
 const XR_RESOLUTION_KEY = 'earth.xrResolution';
 const VSYNC_KEY = 'earth.vsync';
@@ -118,7 +107,9 @@ function loadMap() {
   return {
     imagery: IMAGERY[saved.imagery] ? saved.imagery : 'esri',
     terrain: saved.terrain !== false,
-    colorMatch: saved.colorMatch !== false,
+    // (Display → Color Blending: off unless chosen; saved before version 2, it was only the old default, On)
+    colorMatch: saved.version >= MAP_VERSION ? saved.colorMatch === true : false,
+    version: MAP_VERSION,
     clouds: saved.clouds === true,
     detail: snapToSlider(DETAIL, saved.detail),
     tileMemory: snapToSlider(TILE_MEMORY, saved.tileMemory ?? (isHeadsetBrowser() ? 350 : TILE_MEMORY.default)),
@@ -610,11 +601,12 @@ export default function App() {
   useEffect(() => {
     let asked = '';
     const look = () => {
-      const zoom = globeRef.current?.zoomAt(pose.lat, pose.lon);
+      const { lat: la, lon: lo } = pose.beneath;
+      const zoom = globeRef.current?.zoomAt(la, lo);
       if (zoom == null) return;
       const imagery = imageryRef.current;
-      const lat = pose.lat / DEG;
-      const lon = pose.lon / DEG;
+      const lat = la / DEG;
+      const lon = lo / DEG;
       const key = `${imagery}/${zoom}/${lat.toFixed(2)}/${lon.toFixed(2)}`;
       if (key === asked) return;
       asked = key;
@@ -627,10 +619,11 @@ export default function App() {
   }, [pose]);
   useEffect(() => setDataDate(null), [state.imagery]);
 
-  /** To (lat, lon) in degrees, at `scale` (or as you are), facing north. */
-  const goTo = (lat, lon, scale = pose.scale) => {
+  /** To (lat, lon) in degrees, at `scale` (or as you are), facing `heading` (rad; north). */
+  const goTo = (lat, lon, scale = pose.scale, heading = 0) => {
     pose.scale = scale;
-    pose.setLocation(lat * DEG, lon * DEG, 0, pose.anchor.set(0, 0, 0), globeRef.current?.heightAt(lat * DEG, lon * DEG) ?? 0);
+    // (the place beneath the head: in XR you may have walked off the origin)
+    pose.setLocation(lat * DEG, lon * DEG, heading, pose.anchor.set(pose.head.x, 0, pose.head.z), globeRef.current?.heightAt(lat * DEG, lon * DEG) ?? 0);
     actions.setScale(pose.scale);
   };
 
@@ -695,8 +688,8 @@ export default function App() {
       });
     }
   };
-  /** Real size, standing on the ground beneath you. */
-  const realSize = () => goTo(pose.lat / DEG, pose.lon / DEG, 1);
+  /** 1:1 scale, standing on the ground beneath you (not the anchor: that may be elsewhere), facing as you were. */
+  const realSize = () => goTo(pose.beneath.lat / DEG, pose.beneath.lon / DEG, 1, pose.heading);
 
   // into an XR view, straight from the tap, at XR Resolution; whether it started
   const enterXR = async (stereo) => {

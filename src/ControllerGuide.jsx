@@ -19,12 +19,14 @@ Turn / move them: turn, drag it
 On a menu: take it
 Tap twice: dock / undock
 Tap 3 times: menus here`;
-const TRIGGER = 'Point and press a menu';
+const TRIGGER = `Point and press a menu
+Pull while moving: faster`;
 const TEXTS = {
   left: {
     'xr-standard-trigger': TRIGGER,
     'xr-standard-squeeze': GRIP,
-    'xr-standard-thumbstick': `Move (where it points)
+    'xr-standard-thumbstick': `Move where it points
+(point down: come down)
 Press: this hand's menus / back
 Holding a menu: push / pull, roll`,
     'x-button': 'In menus: choose',
@@ -33,7 +35,7 @@ Holding a menu: push / pull, roll`,
   right: {
     'xr-standard-trigger': TRIGGER,
     'xr-standard-squeeze': GRIP,
-    'xr-standard-thumbstick': `Turn
+    'xr-standard-thumbstick': `Left / right: turn
 Press: this hand's menus / back
 Holding a menu: push / pull, roll`,
     'a-button': 'In menus: choose',

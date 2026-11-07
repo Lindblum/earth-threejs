@@ -322,7 +322,7 @@ export class Globe {
     this.root.add(this.base);
     this.shared = sharedGeometry(SEGMENTS);
     this.loop = edgeLoop(SEGMENTS);
-    this.options = { imagery: 'esri', terrain: true, detail: 1, maxTiles: 450, colorMatch: true };
+    this.options = { imagery: 'esri', terrain: true, detail: 1, maxTiles: 450, colorMatch: false };
     this.frame = 0;
     this.inflight = 0;
     this.pending = []; // loaded, awaiting upload

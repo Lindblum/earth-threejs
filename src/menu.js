@@ -1,5 +1,5 @@
 // Options menu model shared by the windowed panel (DOM) and the XR panel
-// (drawn on a canvas): four groups, Location, Map, Video and Accessibility, each
+// (drawn on a canvas): four groups, Location, Map, Display and Accessibility, each
 // opening a list of setting buttons beneath it, each "Name: Value". A
 // dropdown opens a list of choices beneath it (a chevron on its right); a
 // slider sets a value along its track; the rest toggle when pressed.
@@ -189,7 +189,7 @@ export function pickedChoice(items, pickId) {
 }
 
 /**
- * Items: the groups Location, Map, Video and Accessibility, { id, label, icon, group: { open, items } },
+ * Items: the groups Location, Map, Display and Accessibility, { id, label, icon, group: { open, items } },
  * which, when open (in `state.groups`), list their settings beneath, indented like
  * a dropdown's choices. Settings: { id, label ("Name: Value", see splitLabel),
  * icon, disabled?, title?, dropdown?, slider? }. `slider`: { min, max, step, value }. `dropdown`: { open, options: [{ id,
@@ -208,7 +208,7 @@ export function menuItems(state, env) {
   return [
     group('location', 'Location', 'location', ['myLocation', 'approximate', 'realSize']),
     group('map', 'Map', 'layers', ['imagery', 'terrain', 'clouds', 'detail', 'tileMemory', 'clearCache']),
-    group('video', 'Video', 'video', ['background', 'view', 'colorMatch', 'stats', 'vsync', 'xrResolution']),
+    group('display', 'Display', 'display', ['view', 'background', 'colorMatch', 'stats', 'vsync', 'xrResolution']),
     group('accessibility', 'Accessibility', 'accessibility', ['volume', 'vibration', 'textSize', 'controllerGuide']),
   ];
 }
@@ -230,7 +230,7 @@ function settingsById(state, env) {
       icon: 'globe',
       title: 'Go back to where you started: roughly where you are, from your network address',
     },
-    { id: 'realSize', label: 'Real Size', icon: 'realSize', title: 'The world at real size, standing on the ground where you are' },
+    { id: 'realSize', label: '1:1 Scale', icon: 'realSize', title: 'The world at real size, standing on the ground where you are' },
     {
       id: 'imagery',
       label: `Imagery: ${IMAGERY[state.imagery].label}`,

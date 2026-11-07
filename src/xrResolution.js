@@ -1,4 +1,4 @@
-// Options → Video → XR Resolution, as in grid-game-threejs: the headset's
+// Options → Display → XR Resolution, as in grid-game-threejs: the headset's
 // framebuffer scale (1 = the browser's recommended size). The browser fixes
 // the framebuffer when an XR session starts, so a change takes a new session;
 // turned down during one, it shows at once while dragging: each eye is drawn

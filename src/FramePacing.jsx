@@ -13,7 +13,7 @@ import { useXR } from '@react-three/xr';
 //     there show as judder. Outside XR, renders are skipped on displays
 //     faster than that (120/144 Hz); at 60 Hz nothing changes.
 //
-// Options → Video → VSync, as in grid-game-threejs. On: a frame per display
+// Options → Display → VSync, as in grid-game-threejs. On: a frame per display
 // refresh. Off (outside XR): the next frame starts as soon as one is done (a
 // message loop), so the frame rate isn't capped at the refresh rate, nor at
 // the see-through looks' ~72; the browser still shows them at its own

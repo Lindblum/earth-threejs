@@ -14,9 +14,14 @@ import { focusables, slideEndId, slideId } from './menu.js';
 // moving both hands drags it. Scale it down to hold the whole globe; up to
 // stand in a street.
 //
-// The sticks: the left moves you over the ground, the way the left
-// controller points (level), faster the higher you are; the right turns you
-// about your head. Pressed in (L3 / R3), a stick works the panels docked on
+// The world's kept upright round you: the Earth's centre straight below
+// your head, whatever its scale (see EarthPose.follow).
+//
+// The sticks: the left moves you the way the left controller points (up and
+// down too: point down to come down to the ground; pushed sideways, sideways),
+// faster the higher you are; either trigger, pulled, speeds that up (to
+// BOOST times at full pull). The right, left and right, turns you about the
+// line from the Earth's centre up through your head. Pressed in (L3 / R3), a stick works the panels docked on
 // its controller instead (its probe turns blue): up and down go through their
 // buttons, settings and choices (left and right set a slider), A / X presses
 // the one lit, B / Y goes up a level. Pressed again, back to moving.
@@ -71,6 +76,7 @@ const ROLL_RATE = Math.PI; // radians per second at full tilt
 const MOVE_SPEED = 1.5; // world m/s at full tilt, standing on the ground...
 const MOVE_PER_HEIGHT = 1; // ...and this many times your height over it a second, higher up
 const TURN_SPEED = 1.5; // rad/s at full tilt
+const BOOST = 8; // a trigger pulled all the way: moving this many times faster
 const MIN_SPAN = 0.02; // m: hands nearer than this don't scale
 const MENU_TILT = 0.6; // a stick tilted this far steps through a panel...
 const MENU_REPEAT = [0.4, 0.12]; // ...again after this long held, then this often
@@ -84,7 +90,8 @@ const _v = new THREE.Vector3();
 const _axis = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 const _scale = new THREE.Vector3();
-const _up = new THREE.Vector3(0, 1, 0);
+const _right = new THREE.Vector3();
+const _centre = new THREE.Vector3();
 
 /** A controller's probe's centre, into `out`, from its target-ray pose (world). */
 export const controllerTip = (rayMatrix, out) => out.copy(PROBE_TIP).applyMatrix4(rayMatrix);
@@ -408,22 +415,24 @@ export function useControllers({ origin, pose, onScale, panels, probes, home, ho
       onFocus?.(lit);
     }
 
-    // moving over the ground, the way the left controller points (level); faster the higher you are
+    // moving the way the left controller points (up and down too), faster the higher you are, and with a trigger pulled
     const lc = controllers.left;
-    if (lc && !w && !busy.left && !menuMode.current.left && (lc.stick.x || lc.stick.y)) {
-      const forward = _v.copy(lc.ray.direction).setY(0);
-      if (forward.lengthSq() > 1e-6) {
-        forward.normalize();
-        const right = _axis.crossVectors(forward, _up);
-        const speed = Math.max(MOVE_SPEED, MOVE_PER_HEIGHT * pose.clearance) * dt;
-        pose.travel(forward.multiplyScalar(-lc.stick.y * speed).addScaledVector(right, lc.stick.x * speed));
-      }
-    }
-    // turning about the head (pushed right: turned right)
     const rc = controllers.right;
+    if (lc && !w && !busy.left && !menuMode.current.left && (lc.stick.x || lc.stick.y)) {
+      const boost = 1 + (BOOST - 1) * Math.max(lc.triggerValue ?? 0, rc?.triggerValue ?? 0);
+      const speed = Math.max(MOVE_SPEED, MOVE_PER_HEIGHT * pose.clearance) * boost * dt;
+      const forward = _v.copy(lc.ray.direction);
+      const right = _right.setFromMatrixColumn(lc.rayMatrix, 0).setY(0); // (sideways stays level)
+      if (right.lengthSq() > 1e-6) right.normalize();
+      const move = forward.multiplyScalar(-lc.stick.y * speed).addScaledVector(right, lc.stick.x * speed);
+      pose.rise(move.y);
+      pose.travel(move.setY(0));
+    }
+    // turning about the line from the Earth's centre up through the head (pushed right: turned right)
     if (rc && !w && !busy.right && !menuMode.current.right && rc.stick.x) {
       gl.xr.getCamera().getWorldPosition(_pos);
-      pose.turnAbout(_pos, rc.stick.x * TURN_SPEED * dt);
+      const axis = _axis.copy(_pos).sub(pose.centre(_centre));
+      if (axis.lengthSq() > 1e-12) pose.turnAboutAxis(_pos, axis.normalize(), rc.stick.x * TURN_SPEED * dt);
     }
 
     // the probes, at each controller's tip

@@ -1,4 +1,5 @@
 import { Component } from 'react';
+import { readSetting, removeSetting, writeSetting } from './settings.js';
 
 // When the app stops (an error React can't render past, or the graphics card
 // dropping its context, as a headset's browser may on leaving XR): a plain
@@ -10,18 +11,14 @@ const LAST_ERROR_KEY = 'earth.lastError';
 
 /** Keeps `message` for the next visit; `stopped`: the app stopped for it (else it carried on). */
 export function rememberError(message, stopped = true) {
-  try {
-    localStorage.setItem(LAST_ERROR_KEY, JSON.stringify({ message: String(message).slice(0, 300), stopped, at: new Date().toISOString() }));
-  } catch {
-    // (not kept)
-  }
+  writeSetting(LAST_ERROR_KEY, { message: String(message).slice(0, 300), stopped, at: new Date().toISOString() });
 }
 
 /** What went wrong last time, as a line for Options, once (then forgotten), or null. */
 export function takeLastError() {
   try {
-    const saved = JSON.parse(localStorage.getItem(LAST_ERROR_KEY));
-    localStorage.removeItem(LAST_ERROR_KEY);
+    const saved = readSetting(LAST_ERROR_KEY);
+    removeSetting(LAST_ERROR_KEY);
     if (!saved?.message) return null;
     return `${saved.stopped ? 'Last time the app stopped' : 'Last time, an error'}: ${saved.message}`;
   } catch {
