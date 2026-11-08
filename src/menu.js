@@ -308,6 +308,7 @@ function settingsById(state, env) {
           return {
             value: b,
             label: BACKGROUND_LABELS[b],
+            icon: b, // (as the field shows it)
             disabled: unavailable,
             title: unavailable ? 'Passthrough needs an XR headset or a phone camera' : undefined,
           };
@@ -399,20 +400,28 @@ function viewUnavailableReason(view, env) {
  * (The groups' labels are short, so they don't set it; the panels also fit
  * the dropdowns' choices, two to a row.)
  */
-export function possibleLabels(env) {
+function labelSets(env) {
   const labels = new Set();
+  const sliderNames = new Set(); // (a slider's row is its label and a track)
   const backgrounds = BACKGROUNDS.filter((b) => b !== 'passthrough' || env.passthroughAvailable);
   for (const flag of [false, true])
     for (const background of backgrounds)
       for (const view of env.views)
         for (const imagery of IMAGERY_IDS) {
           const state = { locating: flag ? 'device' : 'network', cacheCleared: flag, imagery, terrain: flag, clouds: flag, constellations: flag, colorMatch: flag, detail: DETAIL.max, tileMemory: TILE_MEMORY.max, stats: flag, volume: 1, vibration: 1, background, view, dropdowns: [], textSize: 1, controllerGuide: flag, vsync: flag, xrResolution: 1, xrResolutionActive: null };
-          for (const item of Object.values(settingsById(state, env))) labels.add(item.label);
+          for (const item of Object.values(settingsById(state, env))) {
+            labels.add(item.label);
+            if (item.slider) sliderNames.add(splitLabel(item.label).name);
+          }
         }
   labels.add(`Text Size: ${percent(TEXT_SIZE.max)}`);
   labels.add(`Vibration: ${percent(VIBRATION.max)}`);
   labels.add(`Volume: ${percent(VOLUME.max)}`);
   labels.add(`XR Resolution: ${percent(XR_RESOLUTION.max)} (on release)`);
   for (const name of Object.values(INPUT_NAMES)) labels.add(`Controls: ${name}`);
-  return [...labels];
+  return { labels: [...labels], sliderNames: [...sliderNames] };
 }
+
+export const possibleLabels = (env) => labelSets(env).labels;
+/** The names of the sliders among possibleLabels: the windowed panel sizes their rows with a track. */
+export const possibleSliderNames = (env) => labelSets(env).sliderNames;

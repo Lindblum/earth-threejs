@@ -127,10 +127,10 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn .label { display: flex; flex: 1; gap: 18px; justify-content: space-between; min-width: 0; white-space: nowrap; line-height: 1.25; }
 .menu-btn .name { flex: none; }
 .menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
-/* a slider: its label, then the track beside it, or beneath when there is no room */
-.menu-slider { flex-wrap: wrap; row-gap: 4px; cursor: default; }
-.menu-slider .label { flex: none; } /* (whole: the track takes what room is left, or goes beneath) */
-.menu-slider input[type="range"] { flex: 1 1 120px; min-width: 100px; margin: 0; accent-color: #e8ecf6; cursor: pointer; }
+/* a slider: its name and value, then the track, as wide in every slider (as in xr-music-threejs) */
+.menu-btn.menu-slider { cursor: default; }
+.menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #6f8dff; cursor: pointer; }
+.menu-sizer .menu-slider input[type='range'] { visibility: hidden; }
 
 /* a group's settings beneath its button, indented like a dropdown's choices */
 .menu-group {

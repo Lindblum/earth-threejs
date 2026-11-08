@@ -90,10 +90,12 @@ function labelWidth(label) {
   return value ? textWidth(`${name}:`, BUTTON_FONT) + VALUE_GAP + textWidth(value, BUTTON_FONT) : textWidth(name, BUTTON_FONT);
 }
 
-// a slider: its track from this share of its button's width to the right edge
-const SLIDER_FROM = 0.55;
+// a slider: its track against its button's right edge, as long in every slider (the windowed
+// panel's 120 px, as in xr-music-threejs), blue where it's filled, and the knob blue
+const TRACK = 280;
 const KNOB = 17; // the knob's radius
-const sliderTrack = (r) => ({ x0: r.x + r.w * SLIDER_FROM, x1: r.x + r.w - INSET - KNOB });
+const SLIDER_BLUE = '#6f8dff';
+const sliderTrack = (r) => ({ x0: r.x + r.w - INSET - KNOB - TRACK, x1: r.x + r.w - INSET - KNOB });
 /** Slider `item`'s value at canvas x `px` on button rect `r`, snapped to its steps. */
 function sliderValueAt(item, r, px) {
   const { x0, x1 } = sliderTrack(r);
@@ -104,8 +106,8 @@ function sliderValueAt(item, r, px) {
 function panelWidth(title, labels, choices, sliderLabels, corner) {
   // the settings sit indented in their groups, and their choices further, two to a row
   const button = OPTION_INDENT + INSET + ICON + ICON_GAP + Math.max(0, ...labels.map(labelWidth)) + ICON_GAP + TRAILING + INSET;
-  // a slider's label gets the left of its button, its track the rest
-  const slider = OPTION_INDENT + Math.max(0, ...sliderLabels.map((l) => (INSET + ICON + ICON_GAP + labelWidth(l) + 24) / SLIDER_FROM));
+  // a slider: its label, then its track
+  const slider = OPTION_INDENT + Math.max(0, ...sliderLabels.map((l) => INSET + ICON + ICON_GAP + labelWidth(l) + 24 + TRACK + KNOB + INSET));
   const choiceWidth = ({ label, icon }) => textWidth(label, OPTION_FONT) + (icon ? OPTION_ICON + OPTION_ICON_GAP : 0);
   const choice = 2 * INSET + CHECK + 10 + Math.max(0, ...choices.map(choiceWidth));
   const choiceRow = 2 * OPTION_INDENT + 2 * choice + OPTION_GAP;
@@ -415,19 +417,26 @@ export function XRPanel({ panel, onSelect, groupRef, focusKey }) {
         const ty = r.y + r.h / 2;
         ctx.lineCap = 'round';
         ctx.lineWidth = 10;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
         ctx.beginPath();
         ctx.moveTo(x0, ty);
         ctx.lineTo(x1, ty);
         ctx.stroke();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+        ctx.strokeStyle = SLIDER_BLUE;
         ctx.beginPath();
         ctx.moveTo(x0, ty);
         ctx.lineTo(kx, ty);
         ctx.stroke();
-        ctx.fillStyle = '#ffffff';
+        if (hot) {
+          // pointed at: a white ring round the knob
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+          ctx.beginPath();
+          ctx.arc(kx, ty, KNOB + 7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = SLIDER_BLUE;
         ctx.beginPath();
-        ctx.arc(kx, ty, hot ? KNOB + 3 : KNOB, 0, Math.PI * 2);
+        ctx.arc(kx, ty, KNOB, 0, Math.PI * 2);
         ctx.fill();
         right = x0 - 24;
       }
