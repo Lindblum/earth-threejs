@@ -42,7 +42,7 @@ Credits for what's on show are at the bottom right (in XR, under the Options tit
 - **The air** (`src/atmosphere.js`): single scattering in a spherical atmosphere (Nishita, O'Neil, Bruneton): Rayleigh scattering makes the sky blue, haze makes the glow round the Sun, and ozone keeps the dusk sky blue. The Sun's dimming through the air comes from a small table worked out at startup, and the rest is a short ray-march per pixel. It gives a blue sky by day, reds and golds at sunrise and sunset, and blue twilight, and none of it from above the air, where there's only a thin blue rim round the Earth. The same sums add haze over far ground and clouds, and redden the sunlight on them when the Sun is low. The sky fades out the stars as it brightens.
 - **Day and night**: the Sun lights the ground and the clouds. The night side is at 6%, with a dusk band about 10° wide.
 - **Clouds** (`src/clouds.js`, `src/groundCapture.js`): a layer fades out over its last few hundred metres above the ground. Near you it uses the ground as drawn (the tiles, captured from above as a height map now and then); further off, a coarse world height map.
-- **Depth**: the sky is drawn first and the ground over it, so the two never fight over depth. The plain globe beneath the tiles is pushed back in the depth buffer, and the clouds pulled forward. The near plane is at 5 cm (in the window, further out when high up), and the far plane sits just past the horizon, in powers of two.
+- **Depth**: the sky is drawn first and the ground over it, so the two never fight over depth. The plain globe beneath the tiles is pushed back in the depth buffer, and the clouds pulled forward. The near plane stays at 5 cm for hands and panels, and the far plane sits just past the horizon, in powers of two. Once the Earth is out of reach, it gets a near plane of its own, out toward its nearest tile or cloud (`src/earthDepth.js`). Then the depth buffer is cleared, and hands and panels are drawn over it.
 
 ## Controls
 
@@ -77,6 +77,7 @@ Credits for what's on show are at the bottom right (in XR, under the Options tit
 - `src/sky.js`, `src/SkyLayer.jsx`, `src/constellations.js`: the sky
 - `src/atmosphere.js`: the air (the sky's light, haze, sunlight through it)
 - `src/clouds.js`, `src/groundCapture.js`: the clouds
+- `src/earthDepth.js`: the Earth's own depth range
 - `src/location.js`: finding where you are
 - `src/Scene.jsx`, `src/App.jsx`, `src/menu.js`, `src/XRMenuPanel.jsx`: the scene, app state and panels
 - `src/SideBySide.jsx`, `src/PhoneStereo.jsx`, `src/Cardboard.jsx`, `src/CardboardLens.js`, `src/Gaze.jsx`: the stereo and phone views

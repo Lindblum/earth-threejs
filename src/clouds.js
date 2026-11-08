@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CLOUDS } from './sources.js';
 import { geodeticToEcef } from './geo.js';
 import { ATMOSPHERE_GLSL, atmosphereUniforms } from './atmosphere.js';
+import { EARTH_DEPTH, EARTH_DEPTH_PARS, EARTH_ORDER, OVER_BLENDING, earthDepthUniforms } from './earthDepth.js';
 
 // Map → Clouds: the world's clouds as they are now, at their height.
 //
@@ -33,6 +34,7 @@ const SEGMENTS = [256, 128]; // a shell's grid: around, and pole to pole
 const OPACITY = 0.95;
 
 const vertexShader = /* glsl */ `
+${EARTH_DEPTH_PARS}
 varying vec2 vUv;
 varying vec3 vEcef;
 varying vec3 vWorld;
@@ -41,6 +43,7 @@ void main() {
   vEcef = position;
   vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  ${EARTH_DEPTH}
 }
 `;
 const GROUND_MAX_KM = 6; // (as the worker encodes the ground: 0 to 255 for 0 to this)
@@ -132,7 +135,8 @@ function shell(km) {
  * image's (4096, or 2048 on headsets); `analyse(url)`: the tile worker's
  * cloud analysis, resolving { clouds (RGBA bytes), width, height };
  * `localGround`: the ground round the viewer's uniforms (GroundCapture's).
- * group.userData.follow(viewerHeight) each frame (m): which sides show.
+ * group.userData.follow(viewerHeight) each frame (m): which sides show; it
+ * returns how far off the nearest layer that shows is (m; Infinity if none).
  */
 export function makeClouds(width, analyse, localGround) {
   const group = new THREE.Group();
@@ -143,8 +147,9 @@ export function makeClouds(width, analyse, localGround) {
       name: 'Clouds',
       vertexShader,
       fragmentShader,
-      uniforms: { map: { value: texture }, ground: { value: texture }, layerKm: { value: km }, ...atmosphereUniforms, ...localGround },
-      transparent: true,
+      uniforms: { map: { value: texture }, ground: { value: texture }, layerKm: { value: km }, ...atmosphereUniforms, ...localGround, ...earthDepthUniforms },
+      transparent: false, // (drawn with the Earth, before the rest: see earthDepth.js)
+      ...OVER_BLENDING,
       depthWrite: false,
       side: THREE.DoubleSide,
       polygonOffset: true,
@@ -152,7 +157,7 @@ export function makeClouds(width, analyse, localGround) {
       polygonOffsetUnits: -8,
     });
     const mesh = new THREE.Mesh(shell(km), material);
-    mesh.renderOrder = 10 + i;
+    mesh.renderOrder = EARTH_ORDER.clouds + i;
     mesh.raycast = () => {};
     mesh.visible = false; // (until the data's in)
     group.add(mesh);
@@ -190,6 +195,9 @@ export function makeClouds(width, analyse, localGround) {
     LAYERS_KM.forEach((km, i) => {
       materials[i].side = viewerHeight > km * 1000 ? THREE.FrontSide : THREE.BackSide;
     });
+    if (!group.visible || !group.children[0].visible) return Infinity;
+    // (a layer's gone within NEAR_KM[0] of the eye)
+    return Math.max(NEAR_KM[0] * 1000, Math.min(...LAYERS_KM.map((km) => Math.abs(viewerHeight - km * 1000))));
   };
   group.userData.dispose = () => {
     gone = true;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ATMOSPHERE_GLSL, atmosphereUniforms } from './atmosphere.js';
+import { EARTH_DEPTH, EARTH_DEPTH_PARS, earthDepthUniforms } from './earthDepth.js';
 
 // A tile's look: its image, lit by the Sun and seen through the air (see atmosphere.js), colour-matched, and while it's newly
 // shown, faded in from what it replaced: the part of a coarser tile over it
@@ -27,6 +28,7 @@ export const GAIN_POINTS = 9; // (8 cells a side: its outer points on the tile's
 const vertexShader = /* glsl */ `
 ${ATMOSPHERE_GLSL}
 attribute float heightDelta; // the old ground's height here, above this tile's (0 where absent)
+${EARTH_DEPTH_PARS}
 uniform vec3 tileCenter; // the tile's centre (ECEF): the up at a vertex is roughly away from the Earth's centre
 uniform float fade;
 varying vec2 vUv;
@@ -43,6 +45,7 @@ void main() {
   float distance = length(toHere);
   atmosphere(atmoCamera(), toHere / max(distance, 1e-9), distance, 6, vInscatter, vTransmit);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  ${EARTH_DEPTH}
 }
 `;
 
@@ -136,6 +139,7 @@ export function tileMaterial(map, gainMap, center) {
     fade: { value: 1 },
     fromCount: { value: 1 },
     ...atmosphereUniforms, // (shared: one value for every tile)
+    ...earthDepthUniforms,
   };
   for (let i = 0; i < 4; i++) {
     uniforms[`from${i}`] = { value: map };

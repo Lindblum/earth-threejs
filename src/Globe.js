@@ -6,6 +6,7 @@ import { makeClouds } from './clouds.js';
 import { FADE_S, GAIN_POINTS, endFade, fadeFrom, gainTexture, setGains, tileMaterial } from './tileMaterial.js';
 import { ATMOSPHERE_GLSL, atmosphereUniforms } from './atmosphere.js';
 import { CAPTURE_LAYER, GroundCapture } from './groundCapture.js';
+import { EARTH_DEPTH, EARTH_DEPTH_PARS, EARTH_ORDER, earthDepthUniforms } from './earthDepth.js';
 
 // The globe: a quadtree of Web Mercator tiles, each a mesh of its patch of
 // ground (built in the tile worker from elevation tiles) wearing its imagery
@@ -311,9 +312,10 @@ function baseGlobe() {
   const material = new THREE.ShaderMaterial({
     name: 'BaseGlobe',
     vertexColors: true,
-    uniforms: { ...atmosphereUniforms },
+    uniforms: { ...atmosphereUniforms, ...earthDepthUniforms },
     vertexShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
+      ${EARTH_DEPTH_PARS}
       varying vec3 vColor;
       varying vec3 vInscatter;
       varying vec3 vTransmit;
@@ -324,6 +326,7 @@ function baseGlobe() {
         float distance = length(toHere);
         atmosphere(atmoCamera(), toHere / max(distance, 1e-9), distance, 6, vInscatter, vTransmit);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        ${EARTH_DEPTH}
       }`,
     fragmentShader: /* glsl */ `
       ${ATMOSPHERE_GLSL}
@@ -341,6 +344,7 @@ function baseGlobe() {
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'base-globe';
+  mesh.renderOrder = EARTH_ORDER.base;
   return mesh;
 }
 
@@ -742,6 +746,7 @@ export class Globe {
     mesh.matrixAutoUpdate = false;
     mesh.visible = false;
     mesh.layers.enable(CAPTURE_LAYER);
+    mesh.renderOrder = EARTH_ORDER.tiles;
     mesh.userData.tile = node;
     node.mesh = mesh;
     node.heights = ground.heights;
@@ -1161,13 +1166,17 @@ export class Globe {
       pixelsPerRadian: (viewportHeight / 2) * Math.abs(camera.projectionMatrix.elements[5] || 1),
     };
     this.viewer = v;
-    this.clouds?.userData.follow(v.h);
+    const clouds = this.clouds?.userData.follow(v.h) ?? Infinity;
     const before = new Set(this.drawn ?? []);
     for (const node of before) if (node.mesh) node.mesh.visible = false;
     this.drawn = [];
     this.wanted = [];
     for (const root of this.roots) this.visit(root, v);
     this.fade(before);
+    // how near the nearest of the Earth is (m): its tiles (each roughly, at its nearest), the plain globe, the clouds
+    let nearest = Math.min(clouds, Math.max(1, v.h));
+    for (const node of this.drawn) nearest = Math.min(nearest, node.view?.distance ?? nearest);
+    this.nearest = nearest;
     const now = performance.now() / 1000;
     const changed = this.drawn.length !== before.size || this.drawn.some((node) => !before.has(node));
     this.matchColours(Math.min(0.1, now - (this.lastUpdate ?? now)), changed);

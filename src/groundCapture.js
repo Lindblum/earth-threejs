@@ -12,7 +12,7 @@ import { RG, atmosphereUniforms } from './atmosphere.js';
 // from straight above the ground beneath the viewer, into a small texture of
 // their heights (km; alpha 1 where there's ground).
 
-export const CAPTURE_LAYER = 1;
+export const CAPTURE_LAYER = 5; // (not 1 or 2: three.js's left and right eyes in XR)
 const SIZE = 512; // texels a side
 const EVERY_S = 0.4;
 const REACH = [30, 400]; // km: the half-width covered, from low down to high up...

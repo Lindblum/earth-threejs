@@ -4,20 +4,21 @@ import * as THREE from 'three';
 import { Globe } from './Globe.js';
 import { WGS84_A } from './geo.js';
 import { menuPointer } from './menu.js';
+import { depthClear, earthApart, setEarthDepth } from './earthDepth.js';
 
 // The globe in the scene: placed each frame by the Earth's pose (after the
 // controls have moved it), its tiles picked for the camera (the headset's in
 // XR), and the camera's near and far planes fitted round it.
 //
 // Depth: the near plane stays a few centimetres off (hands and panels are
-// close; in the window, high up, further), the far one just past the horizon (or the far side of the globe),
+// close), the far one just past the horizon (or the far side of the globe),
 // in powers of two so it seldom changes (in XR each change goes to the
-// headset).
+// headset). The Earth, out of reach, has a nearer one of its own: see
+// earthDepth.js.
 
 const NEAR = 0.05; // m
 const MIN_FAR = 16; // m
 const PEAKS = 9000; // m: no ground's higher
-const NEAR_SHARE = 0.3;
 const HORIZON_PEAKS = Math.sqrt((WGS84_A + PEAKS) ** 2 - WGS84_A ** 2); // m: mountains this far past the horizon still show
 const REPORT_S = 0.5; // how often the status (where you are, the tiles) is told
 
@@ -40,10 +41,15 @@ export function Earth({ pose, globeRef, options, onStatus }) {
     const globe = new Globe(gl);
     globe.setOptions(optionsRef.current);
     scene.add(globe.root);
+    const clear = depthClear();
+    scene.add(clear);
     globeRef.current = globe;
-    if (import.meta.env.DEV) Object.assign(window, { __globe: globe, __THREE: THREE, __camera: () => gl.xr.isPresenting ? gl.xr.getCamera() : null }); // (for tests)
+    if (import.meta.env.DEV) Object.assign(window, { __globe: globe, __THREE: THREE, __earthApart: earthApart, __camera: () => gl.xr.isPresenting ? gl.xr.getCamera() : null }); // (for tests)
     return () => {
       scene.remove(globe.root);
+      scene.remove(clear);
+      clear.geometry.dispose();
+      clear.material.dispose();
       globe.dispose();
       if (globeRef.current === globe) globeRef.current = null;
     };
@@ -70,16 +76,13 @@ export function Earth({ pose, globeRef, options, onStatus }) {
     const horizon = d > WGS84_A ? Math.sqrt(d * d - WGS84_A * WGS84_A) + HORIZON_PEAKS : HORIZON_PEAKS;
     const reach = Math.min(horizon, d + WGS84_A) * pose.scale * 1.1;
     const far = 2 ** Math.ceil(Math.log2(Math.max(MIN_FAR, reach)));
-    // in the window, nothing's near the camera but the ground: high up, the near plane goes out too
-    // (a third of the way to the highest ground could be), so the depth buffer's precision is where the Earth is
-    const clear = (globe.viewer.h - PEAKS) * pose.scale * NEAR_SHARE;
-    const near = xr || clear <= NEAR ? NEAR : 2 ** Math.floor(Math.log2(clear));
     const cam = state.camera;
-    if (cam.far !== far || cam.near !== near) {
-      cam.near = near;
+    if (cam.far !== far || cam.near !== NEAR) {
+      cam.near = NEAR;
       cam.far = far;
       cam.updateProjectionMatrix();
     }
+    setEarthDepth(globe.nearest * pose.scale, NEAR, far);
 
     const now = state.clock.elapsedTime;
     if (onStatus && now - told.current > REPORT_S) {
