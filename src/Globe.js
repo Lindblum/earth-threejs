@@ -3,8 +3,9 @@ import { DEG, MERCATOR_MAX_LAT, WGS84_A, WGS84_B, angleDiff, edgeLoop, ecefToGeo
 import { ELEVATION, IMAGERY } from './sources.js';
 import { fetchTile } from './tileCache.js';
 import { makeClouds } from './clouds.js';
-import { FADE_S, GAIN_POINTS, endFade, fadeFrom, gainTexture, setGains, sunlight, tileMaterial } from './tileMaterial.js';
-import { sunUniform } from './sky.js';
+import { FADE_S, GAIN_POINTS, endFade, fadeFrom, gainTexture, setGains, tileMaterial } from './tileMaterial.js';
+import { ATMOSPHERE_GLSL, atmosphereUniforms } from './atmosphere.js';
+import { CAPTURE_LAYER, GroundCapture } from './groundCapture.js';
 
 // The globe: a quadtree of Web Mercator tiles, each a mesh of its patch of
 // ground (built in the tile worker from elevation tiles) wearing its imagery
@@ -310,23 +311,33 @@ function baseGlobe() {
   const material = new THREE.ShaderMaterial({
     name: 'BaseGlobe',
     vertexColors: true,
-    uniforms: { sunDirection: sunUniform },
+    uniforms: { ...atmosphereUniforms },
     vertexShader: /* glsl */ `
+      ${ATMOSPHERE_GLSL}
       varying vec3 vColor;
-      varying vec3 vUp;
+      varying vec3 vInscatter;
+      varying vec3 vTransmit;
       void main() {
-        vColor = color;
-        vUp = position; // (ECEF)
+        vec3 p = atmoStretch(position); // (ECEF)
+        vColor = color * sunlightAt(p, 0.0);
+        vec3 toHere = mat3(ecefFromWorld) * ((modelMatrix * vec4(position, 1.0)).xyz - cameraPosition) * (STRETCH / 1000.0);
+        float distance = length(toHere);
+        atmosphere(atmoCamera(), toHere / max(distance, 1e-9), distance, 6, vInscatter, vTransmit);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 sunDirection;
+      ${ATMOSPHERE_GLSL}
       varying vec3 vColor;
-      varying vec3 vUp;
+      varying vec3 vInscatter;
+      varying vec3 vTransmit;
       void main() {
-        gl_FragColor = vec4(vColor * ${sunlight('vUp')}, 1.0);
+        gl_FragColor = vec4(atmoOver(vColor, vInscatter, vTransmit), 1.0);
         #include <colorspace_fragment>
       }`,
+    // (pushed back in the depth buffer: wherever a tile's over it, the tile wins, however coarse the depth)
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 8,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'base-globe';
@@ -342,6 +353,7 @@ export class Globe {
     this.root.matrixAutoUpdate = false;
     this.base = baseGlobe();
     this.root.add(this.base);
+    this.groundCapture = new GroundCapture(); // (the ground round the viewer's heights, for the clouds)
     this.shared = sharedGeometry(SEGMENTS);
     this.loop = edgeLoop(SEGMENTS);
     this.options = { imagery: 'esri', terrain: true, detail: 1, maxTiles: 450, colorMatch: false };
@@ -393,7 +405,7 @@ export class Globe {
   /** Map → Clouds: the cloud shell shown or taken away. */
   showClouds(on) {
     if (on && !this.clouds) {
-      this.clouds = makeClouds(this.cloudWidth, (url) => this.analyseClouds(url));
+      this.clouds = makeClouds(this.cloudWidth, (url) => this.analyseClouds(url), this.groundCapture.uniforms);
       this.root.add(this.clouds);
     } else if (!on && this.clouds) {
       this.root.remove(this.clouds);
@@ -591,6 +603,7 @@ export class Globe {
     this.worker.terminate();
     this.base.geometry.dispose();
     this.base.material.dispose();
+    this.groundCapture.dispose();
   }
 
   /** The node's mesh and image freed, or its load dropped: back to idle. */
@@ -728,6 +741,7 @@ export class Globe {
     mesh.updateMatrix();
     mesh.matrixAutoUpdate = false;
     mesh.visible = false;
+    mesh.layers.enable(CAPTURE_LAYER);
     mesh.userData.tile = node;
     node.mesh = mesh;
     node.heights = ground.heights;
@@ -1129,6 +1143,7 @@ export class Globe {
     this.root.matrix.copy(pose.matrix);
     this.root.matrixWorldNeedsUpdate = true;
     this.root.updateMatrixWorld(true);
+    atmosphereUniforms.ecefFromWorld.value.copy(pose.inverse);
     // the viewer, in the Earth's frame
     camera.getWorldPosition(_v);
     const ecef = _w.copy(_v).applyMatrix4(pose.inverse);
@@ -1146,6 +1161,7 @@ export class Globe {
       pixelsPerRadian: (viewportHeight / 2) * Math.abs(camera.projectionMatrix.elements[5] || 1),
     };
     this.viewer = v;
+    this.clouds?.userData.follow(v.h);
     const before = new Set(this.drawn ?? []);
     for (const node of before) if (node.mesh) node.mesh.visible = false;
     this.drawn = [];
@@ -1259,6 +1275,11 @@ export class Globe {
     // whole branches unused and empty: forgotten
     for (const node of all)
       if (node.children && this.frame - node.lastUsed > 600 && node.children.every((c) => c.state === 'idle' && !c.children)) node.children = null;
+  }
+
+  /** The tiles' heights round the viewer, for the clouds (now and then, with them on): after update, `scene` the one the Earth's in. */
+  captureGround(scene, pose) {
+    if (this.clouds && this.viewer) this.groundCapture.update(this.renderer, scene, this.viewer, pose, performance.now() / 1000);
   }
 
   /** The ground's height (m above the ellipsoid) at (lat, lon), from the finest loaded tile there; null if none. */

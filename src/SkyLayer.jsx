@@ -3,13 +3,23 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GALACTIC_FROM_SKYBOX, J2000_FROM_GALACTIC, MOON_RADIUS, SUN_ANGULAR_RADIUS, fromRaDec, sky, updateSky } from './sky.js';
 import { LINES, NAMES } from './constellations.js';
+import { ATMOSPHERE_GLSL, RT, altitudeKm, atmosphereUniforms, sunColorFrom } from './atmosphere.js';
+import { WGS84_A, WGS84_B } from './geo.js';
 
 // The sky in its place now (see sky.js): the stars (the skybox, turned to
 // them), Map → Constellations (their figures and names), the Sun and the
-// Moon. All of them at infinity: drawn round the viewer on a sphere far
-// enough out that the eyes' separation doesn't show, then pushed to the far
-// plane's depth, so the Earth and its clouds (always nearer) hide them, and
-// they never need the far plane moved.
+// Moon, and the air's light (see atmosphere.js): a blue sky by day, sunrise
+// and sunset, none above the air. The stars and the rest at infinity: drawn
+// round the viewer on a sphere far enough out that the eyes' separation
+// doesn't show. The air on the Earth itself (a shell round it, its far side:
+// what's worked out is along each eye's way through it).
+//
+// All drawn first, before the ground (as opaque things, in their own order,
+// not depth-tested), so the Earth and its clouds go over them however coarse
+// the depth buffer is, and they never need the far plane moved. The air goes
+// over the stars, the Moon's dark disc and the constellations, hiding them
+// as it brightens (as the eye, used to the daylight, can't see them); the Sun
+// and the Moon's light are added after it.
 
 const DEG = Math.PI / 180;
 const RADIUS = 1e5; // m: the sphere they're drawn on, round the viewer
@@ -27,8 +37,13 @@ const ATLAS = [1024, 2048]; // the names' texture: two columns
 const GLOW_DEG = 9; // the Sun's glow reaches this far out
 const EARTHSHINE = 0.025; // the Moon's dark side, lit faintly by the Earth
 
-// rendered after the ground (opaque), before the clouds (renderOrder 10 and up); the Moon after the Sun, to hide it in an eclipse
-const ORDER = { lines: -40, names: -39, sun: -30, moon: -20 };
+// drawn first (the ground goes over them), in this order
+const ORDER = { lines: -1040, names: -1039, moonDisc: -1020, air: -1010, sun: -1005, moon: -1000 };
+const FIRST = { transparent: false, depthTest: false, depthWrite: false }; // (opaque, so before the ground; blending as set)
+const OVER = { blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor };
+const AIR_STEPS = 12;
+const DAY_HIDES = [6, 0.995]; // the air hides what's behind it by its brightness (luminance) times this, up to this much
+const GLOW_IN_AIR = 0.6; // the Sun's glow, under the sky (which has its own, round it)
 
 /** A vertex shader's end: at the far plane. */
 const AT_INFINITY = /* glsl */ `gl_Position.z = gl_Position.w * ${FAR_DEPTH};`;
@@ -49,8 +64,8 @@ const lineMaterial = () =>
         gl_FragColor = vec4(color, opacity);
         #include <colorspace_fragment>
       }`,
-    transparent: true,
-    depthWrite: false,
+    ...FIRST,
+    ...OVER,
   });
 
 // Billboards (the names, the Sun): each vertex at a direction (`position`),
@@ -122,8 +137,8 @@ function namesMesh() {
         gl_FragColor = vec4(t.rgb, t.a * 0.85);
         #include <colorspace_fragment>
       }`,
-    transparent: true,
-    depthWrite: false,
+    ...FIRST,
+    ...OVER,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false;
@@ -150,7 +165,7 @@ function constellationsGroup() {
   return group;
 }
 
-/** The Sun: a disc its true size, and a glow round it (added to what's behind). */
+/** The Sun: a disc its true size, and a glow round it (added to what's behind), coloured by the air it's seen through. */
 function sunMesh() {
   const g = GLOW_DEG * DEG;
   const geometry = new THREE.BufferGeometry();
@@ -160,19 +175,24 @@ function sunMesh() {
   geometry.setIndex([0, 1, 2, 0, 2, 3]);
   const material = new THREE.ShaderMaterial({
     name: 'Sun',
+    uniforms: { tint: { value: new THREE.Color(1, 1, 1) }, glowScale: { value: 1 } },
     vertexShader: BILLBOARD_VERTEX,
     fragmentShader: /* glsl */ `
+      uniform vec3 tint;
+      uniform float glowScale;
       varying vec2 vCorner;
       void main() {
         float r = length(vCorner) / ${DEG.toFixed(8)}; // degrees from its centre
         float disc = 1.0 - smoothstep(${(SUN_ANGULAR_RADIUS / DEG) * 0.92}, ${(SUN_ANGULAR_RADIUS / DEG) * 1.06}, r);
         float glow = 0.55 * exp(-r / 0.35) + 0.14 * exp(-r / 1.6) + 0.04 * exp(-r / 4.5);
         glow *= 1.0 - smoothstep(${GLOW_DEG * 0.7}, ${GLOW_DEG}.0, r);
-        vec3 color = vec3(1.0, 0.97, 0.9) * disc * 1.6 + vec3(1.0, 0.86, 0.62) * glow;
+        // (its disc keeps its brightness as the air dims it, till it's well down: only its colour goes)
+        float most = max(tint.r, max(tint.g, tint.b));
+        vec3 seen = tint / max(most, 0.05) * smoothstep(0.0, 0.05, most);
+        vec3 color = vec3(1.0, 0.97, 0.9) * seen * disc * 1.6 + vec3(1.0, 0.86, 0.62) * tint * glow * glowScale;
         gl_FragColor = vec4(color, 1.0);
       }`,
-    transparent: true,
-    depthWrite: false,
+    ...FIRST,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
   });
@@ -182,7 +202,11 @@ function sunMesh() {
   return mesh;
 }
 
-/** The Moon: a sphere (its near side, lon 0, toward the Earth), lit by the Sun, so in its phase. */
+/**
+ * The Moon: a sphere (its near side, lon 0, toward the Earth), lit by the Sun,
+ * so in its phase: its light added over the sky (by day it shows pale through
+ * the blue); and its disc, dark, under the sky (hiding the stars behind it).
+ */
 function moonMesh() {
   const texture = new THREE.TextureLoader().load(MOON_URL);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -210,13 +234,74 @@ function moonMesh() {
         gl_FragColor = vec4(albedo * (1.25 * light + ${EARTHSHINE}), 1.0);
         #include <colorspace_fragment>
       }`,
-    transparent: true, // (drawn among the sky's things, in order: after the Sun)
-    depthWrite: false,
+    ...FIRST,
+    blending: THREE.AdditiveBlending,
   });
   // (three's sphere: u = 0.5 along +X, the map's longitude 0; +Y north)
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), material);
   mesh.frustumCulled = false;
   mesh.renderOrder = ORDER.moon;
+  const disc = new THREE.Mesh(
+    mesh.geometry,
+    new THREE.ShaderMaterial({
+      name: 'MoonDisc',
+      vertexShader: /* glsl */ `
+        void main() {
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          ${AT_INFINITY}
+        }`,
+      fragmentShader: /* glsl */ `void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); }`,
+      ...FIRST,
+    }),
+  );
+  disc.frustumCulled = false;
+  disc.renderOrder = ORDER.moonDisc;
+  mesh.userData.disc = disc;
+  return mesh;
+}
+
+/**
+ * The air: the far side of a shell round the Earth at the atmosphere's top
+ * (ECEF, its matrix the Earth's pose), each pixel the light along the eye's
+ * way through the air there (premultiplied: over what's behind, hiding it by
+ * its brightness).
+ */
+function airMesh() {
+  const geometry = new THREE.SphereGeometry(RT * 1000, 128, 64);
+  geometry.scale(1, 1, WGS84_B / WGS84_A); // (an ellipsoid as the Earth's, about its axis: ECEF z)
+  const material = new THREE.ShaderMaterial({
+    name: 'Air',
+    uniforms: { ...atmosphereUniforms },
+    vertexShader: /* glsl */ `
+      varying vec3 vWorld;
+      void main() {
+        vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        ${AT_INFINITY}
+      }`,
+    fragmentShader: /* glsl */ `
+      ${ATMOSPHERE_GLSL}
+      varying vec3 vWorld;
+      void main() {
+        vec3 L, T;
+        atmosphere(atmoCamera(), atmoDirection(vWorld - cameraPosition), 1e9, ${AIR_STEPS}, L, T);
+        vec3 c = atmoTone(L);
+        float hides = clamp(dot(c, vec3(0.2126, 0.7152, 0.0722)) * ${DAY_HIDES[0].toFixed(2)}, 0.0, ${DAY_HIDES[1].toFixed(2)});
+        gl_FragColor = vec4(c, 1.0);
+        #include <colorspace_fragment>
+        gl_FragColor.a = hides;
+      }`,
+    side: THREE.BackSide,
+    ...FIRST,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.matrixAutoUpdate = false;
+  mesh.renderOrder = ORDER.air;
+  mesh.raycast = () => {};
   return mesh;
 }
 
@@ -241,7 +326,7 @@ const EARTH_AXIS = new THREE.Vector3(0, 0, 1);
 export function SkyLayer({ pose, stars, constellations, bodies }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
-  const things = useMemo(() => ({ constellations: constellationsGroup(), sun: sunMesh(), moon: moonMesh() }), []);
+  const things = useMemo(() => ({ constellations: constellationsGroup(), sun: sunMesh(), moon: moonMesh(), air: airMesh() }), []);
   const root = useRef(null);
 
   useEffect(
@@ -251,11 +336,12 @@ export function SkyLayer({ pose, stars, constellations, bodies }) {
         o.material?.uniforms?.map?.value?.dispose();
         o.material?.dispose();
       });
-      for (const mesh of [things.sun, things.moon]) {
+      for (const mesh of [things.sun, things.moon, things.air]) {
         mesh.geometry.dispose();
         mesh.material.uniforms?.map?.value?.dispose();
         mesh.material.dispose();
       }
+      things.moon.userData.disc.material.dispose();
     },
     [things],
   );
@@ -274,8 +360,19 @@ export function SkyLayer({ pose, stars, constellations, bodies }) {
     c.visible = stars && constellations;
     c.quaternion.copy(starsToWorld);
 
+    // the air, on the Earth
+    const air = things.air;
+    air.visible = bodies;
+    air.matrix.copy(pose.matrix);
+    air.matrixWorldNeedsUpdate = true;
+
     _sun.copy(sky.sun).applyQuaternion(pose.q); // (world)
     things.sun.visible = bodies;
+    // its colour: through the air from where you are; its glow less under the sky (the sky has its own)
+    pose.toEcef(_cam, _viewer);
+    const sunMaterial = things.sun.material.uniforms;
+    sunColorFrom(_viewer, sky.sun, sunMaterial.tint.value);
+    sunMaterial.glowScale.value = THREE.MathUtils.lerp(1, GLOW_IN_AIR, 1 - THREE.MathUtils.smoothstep(altitudeKm(_viewer), 20, 100));
     // (the quad's four corners all at the Sun's direction; `corner` spreads them)
     const p = things.sun.geometry.attributes.position;
     for (let i = 0; i < 4; i++) p.setXYZ(i, _sun.x, _sun.y, _sun.z);
@@ -283,8 +380,7 @@ export function SkyLayer({ pose, stars, constellations, bodies }) {
 
     // the Moon, seen from where you are (it's near enough that that matters: up to a degree)
     const moon = things.moon;
-    moon.visible = bodies;
-    pose.toEcef(_cam, _viewer);
+    moon.visible = moon.userData.disc.visible = bodies;
     _moon.copy(sky.moon).sub(_viewer); // (ECEF, m)
     const distance = _moon.length();
     _moon.divideScalar(distance).applyQuaternion(pose.q); // (world, a unit vector)
@@ -298,14 +394,23 @@ export function SkyLayer({ pose, stars, constellations, bodies }) {
     _west.crossVectors(_toEarth, _north);
     moon.quaternion.setFromRotationMatrix(_m.makeBasis(_toEarth, _north, _west));
     moon.material.uniforms.sun.value.copy(_sun);
+    const disc = moon.userData.disc;
+    disc.position.copy(moon.position);
+    disc.quaternion.copy(moon.quaternion);
+    disc.scale.copy(moon.scale);
   });
 
   return (
-    <group ref={root}>
-      <primitive object={things.constellations} />
-      <primitive object={things.sun} />
-      <primitive object={things.moon} />
-    </group>
+    <>
+      <group ref={root}>
+        <primitive object={things.constellations} />
+        <primitive object={things.sun} />
+        <primitive object={things.moon} />
+        <primitive object={things.moon.userData.disc} />
+      </group>
+      {/* (in the world: its matrix the Earth's pose) */}
+      <primitive object={things.air} />
+    </>
   );
 }
 

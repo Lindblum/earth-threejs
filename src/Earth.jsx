@@ -10,13 +10,15 @@ import { menuPointer } from './menu.js';
 // XR), and the camera's near and far planes fitted round it.
 //
 // Depth: the near plane stays a few centimetres off (hands and panels are
-// close), the far one just past the horizon (or the far side of the globe),
+// close; in the window, high up, further), the far one just past the horizon (or the far side of the globe),
 // in powers of two so it seldom changes (in XR each change goes to the
 // headset).
 
 const NEAR = 0.05; // m
 const MIN_FAR = 16; // m
-const HORIZON_PEAKS = Math.sqrt((WGS84_A + 9000) ** 2 - WGS84_A ** 2); // m: mountains this far past the horizon still show
+const PEAKS = 9000; // m: no ground's higher
+const NEAR_SHARE = 0.3;
+const HORIZON_PEAKS = Math.sqrt((WGS84_A + PEAKS) ** 2 - WGS84_A ** 2); // m: mountains this far past the horizon still show
 const REPORT_S = 0.5; // how often the status (where you are, the tiles) is told
 
 /**
@@ -61,15 +63,20 @@ export function Earth({ pose, globeRef, options, onStatus }) {
     // an eye's height in pixels
     const eye = xr ? camera.cameras?.[0]?.viewport?.w : null;
     globe.update(camera, pose, eye || size.height * viewport.dpr);
+    globe.captureGround(scene, pose);
 
     // near and far round what's to be seen
     const d = globe.viewer.ecef.length();
     const horizon = d > WGS84_A ? Math.sqrt(d * d - WGS84_A * WGS84_A) + HORIZON_PEAKS : HORIZON_PEAKS;
     const reach = Math.min(horizon, d + WGS84_A) * pose.scale * 1.1;
     const far = 2 ** Math.ceil(Math.log2(Math.max(MIN_FAR, reach)));
+    // in the window, nothing's near the camera but the ground: high up, the near plane goes out too
+    // (a third of the way to the highest ground could be), so the depth buffer's precision is where the Earth is
+    const clear = (globe.viewer.h - PEAKS) * pose.scale * NEAR_SHARE;
+    const near = xr || clear <= NEAR ? NEAR : 2 ** Math.floor(Math.log2(clear));
     const cam = state.camera;
-    if (cam.far !== far || cam.near !== NEAR) {
-      cam.near = NEAR;
+    if (cam.far !== far || cam.near !== near) {
+      cam.near = near;
       cam.far = far;
       cam.updateProjectionMatrix();
     }

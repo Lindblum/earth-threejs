@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { sunUniform } from './sky.js';
+import { ATMOSPHERE_GLSL, atmosphereUniforms } from './atmosphere.js';
 
-// A tile's look: its image, lit by the Sun (day and night: see DAYLIGHT), colour-matched, and while it's newly
+// A tile's look: its image, lit by the Sun and seen through the air (see atmosphere.js), colour-matched, and while it's newly
 // shown, faded in from what it replaced: the part of a coarser tile over it
 // (it split out of that tile), or its four children (they joined back into
 // it). Both the image and the ground's shape fade: each vertex starts at the
@@ -18,43 +18,43 @@ import { sunUniform } from './sky.js';
 // tile's uvs carried into that tile's image (`fromTransform`) and into that
 // tile itself (`fromTile`, for its gains).
 
-// Day and night: the photos have their own daylight in them, so the Sun
-// lights them fully wherever it's up (no fading toward the poles, no
-// shading of slopes: that would darken them twice), falling to NIGHT
-// through a dusk band across the terminator (the Sun from DAYLIGHT[0] below
-// the horizon to DAYLIGHT[1] above, as sines of its height).
-export const NIGHT = 0.06;
-export const DAYLIGHT = [-0.07, 0.1];
-
-/** GLSL: the Sun's light (NIGHT to 1) on a point whose up (ECEF) is `up`, with a `sunDirection` uniform; `early`: light comes this much sooner (sine of the Sun's height). */
-export const sunlight = (up, early = 0) =>
-  `mix(${NIGHT.toFixed(3)}, 1.0, smoothstep(${(DAYLIGHT[0] - early).toFixed(3)}, ${DAYLIGHT[1].toFixed(3)}, dot(normalize(${up}), sunDirection)))`;
+// Lit by the Sun and seen through the air: see atmosphere.js (worked out at
+// each vertex: the light, the air's haze between the eye and the ground).
 
 export const FADE_S = 0.35; // how long a tile takes to fade in
 export const GAIN_POINTS = 9; // (8 cells a side: its outer points on the tile's edges, shared with its neighbours')
 
 const vertexShader = /* glsl */ `
+${ATMOSPHERE_GLSL}
 attribute float heightDelta; // the old ground's height here, above this tile's (0 where absent)
 uniform vec3 tileCenter; // the tile's centre (ECEF): the up at a vertex is roughly away from the Earth's centre
 uniform float fade;
 varying vec2 vUv;
-varying vec3 vUp;
+varying vec3 vLight;
+varying vec3 vInscatter;
+varying vec3 vTransmit;
 void main() {
   vUv = uv;
   vec3 up = normalize(tileCenter + position);
-  vUp = up;
   vec3 p = position + up * heightDelta * (1.0 - fade);
+  vLight = sunlightAt(atmoStretch(tileCenter + p), 0.0);
+  // the air between the eye and here
+  vec3 toHere = mat3(ecefFromWorld) * ((modelMatrix * vec4(p, 1.0)).xyz - cameraPosition) * (STRETCH / 1000.0);
+  float distance = length(toHere);
+  atmosphere(atmoCamera(), toHere / max(distance, 1e-9), distance, 6, vInscatter, vTransmit);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }
 `;
 
 const fragmentShader = /* glsl */ `
+${ATMOSPHERE_GLSL}
 uniform sampler2D map;
 uniform mat3 mapTransform;
 uniform sampler2D gainMap;
 uniform float fade; // 0: all what it replaced; 1: all its own
-uniform vec3 sunDirection; // ECEF, a unit vector
-varying vec3 vUp;
+varying vec3 vLight;
+varying vec3 vInscatter;
+varying vec3 vTransmit;
 uniform int fromCount; // 1: a coarser tile's image; 4: its children's, by quadrant
 uniform sampler2D from0;
 uniform sampler2D from1;
@@ -100,8 +100,7 @@ void main() {
     }
     color = mix(before, color, fade);
   }
-  color *= ${sunlight('vUp')};
-  gl_FragColor = vec4(color, 1.0);
+  gl_FragColor = vec4(atmoOver(color * vLight, vInscatter, vTransmit), 1.0);
   #include <colorspace_fragment>
 }
 `;
@@ -136,7 +135,7 @@ export function tileMaterial(map, gainMap, center) {
     tileCenter: { value: center.clone() },
     fade: { value: 1 },
     fromCount: { value: 1 },
-    sunDirection: sunUniform, // (shared: one value for every tile)
+    ...atmosphereUniforms, // (shared: one value for every tile)
   };
   for (let i = 0; i < 4; i++) {
     uniforms[`from${i}`] = { value: map };

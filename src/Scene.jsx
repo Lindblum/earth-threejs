@@ -99,7 +99,7 @@ function Backdrop({ background }) {
 /**
  * Light for the controllers' models and probes: the Sun, where it is, and a
  * little light all round (the ground and clouds are lit in their own
- * shaders, by the same Sun: see tileMaterial.js).
+ * shaders, by the same Sun: see atmosphere.js).
  */
 function Lights({ pose }) {
   const sun = useRef(null);

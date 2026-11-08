@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { CLOUDS } from './sources.js';
 import { geodeticToEcef } from './geo.js';
-import { sunUniform } from './sky.js';
-import { sunlight } from './tileMaterial.js';
+import { ATMOSPHERE_GLSL, atmosphereUniforms } from './atmosphere.js';
 
 // Map → Clouds: the world's clouds as they are now, at their height.
 //
@@ -14,10 +13,18 @@ import { sunlight } from './tileMaterial.js';
 // its base, and tall storms have depth. A column's layers share its cover
 // between them, so stacked they add up to it.
 //
+// Where the ground comes up into a layer, the layer fades out over its last
+// few hundred metres above it: the ground as drawn round the viewer (see
+// groundCapture.js), the world's coarse height map further off. And a layer
+// fades out close round the eye (flying through it, it doesn't slice the view).
+//
 // One equirectangular image, so a shell's uvs are just longitude and
-// latitude. Lit by the Sun as the ground is (see tileMaterial.js), seen
-// from both sides, drawn after the ground without hiding it from the depth
-// buffer.
+// latitude. Lit by the Sun as the ground is, reddening at sunrise and sunset,
+// and seen through the air (see atmosphere.js). Drawn after the ground
+// without hiding it from the depth buffer, pulled a little toward the eye in
+// it (so a cloud deck lying on the ground wins, however coarse the depth);
+// seen from outside (above it) only its near side, from inside only its
+// underside.
 
 const LAYERS_KM = [1, 2.5, 4, 5.5, 7, 8.5, 10, 11.5];
 const SPACING_KM = 1.5;
@@ -27,23 +34,35 @@ const OPACITY = 0.95;
 
 const vertexShader = /* glsl */ `
 varying vec2 vUv;
-varying vec3 vUp;
+varying vec3 vEcef;
+varying vec3 vWorld;
 void main() {
   vUv = uv;
-  vUp = position; // (ECEF: up is away from the centre, near enough)
+  vEcef = position;
+  vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
 const GROUND_MAX_KM = 6; // (as the worker encodes the ground: 0 to 255 for 0 to this)
-const GROUND_CLEARANCE_KM = [0.3, 1.5]; // a layer fades out as the ground (its highest nearby) comes within this of it
+const COARSE_PEAKS = 1.4; // the coarse map's ground, raised: its peaks are averaged down (the Alps' by 2 km)
+const CLEARANCE_KM = { coarse: [0.3, 1.5], local: [0.05, 0.6] }; // a layer fades out as the ground comes within this of it
+const NEAR_KM = [0.2, 1.5]; // ...and as the eye does
+const AIR_STEPS = 4;
 
 const fragmentShader = /* glsl */ `
 uniform sampler2D map;
 uniform sampler2D ground;
 uniform float layerKm;
-uniform vec3 sunDirection;
+uniform sampler2D localGround;
+uniform vec3 localCenter;
+uniform vec3 localEast;
+uniform vec3 localNorth;
+uniform float localHalf;
+uniform float localOn;
 varying vec2 vUv;
-varying vec3 vUp;
+varying vec3 vEcef;
+varying vec3 vWorld;
+${ATMOSPHERE_GLSL}
 void main() {
   vec4 t = texture2D(map, vUv);
   float cover = t.r;
@@ -53,13 +72,27 @@ void main() {
   // ...sharing the column's cover with the layers below it (how many: smoothly, not in steps, so no bands)
   float layers = clamp((top - ${LAYERS_KM[0].toFixed(1)}) / ${SPACING_KM.toFixed(1)} + 1.0, 1.0, ${LAYERS_KM.length}.0);
   float a = (1.0 - pow(1.0 - cover * ${OPACITY}, 1.0 / layers)) * here;
-  // ...and not where the ground rises into it (mountains through a cloud deck: no hard cut line)
-  float groundKm = texture2D(ground, vUv).r * ${GROUND_MAX_KM.toFixed(1)};
-  a *= smoothstep(groundKm + ${GROUND_CLEARANCE_KM[0].toFixed(2)}, groundKm + ${GROUND_CLEARANCE_KM[1].toFixed(2)}, layerKm);
+  // ...and not where the ground rises into it (mountains through a cloud deck: no hard cut line): the ground
+  // as drawn round the viewer, or the world's coarse map
+  vec3 p = atmoStretch(vEcef);
+  float altitude = altitudeKm(p);
+  float coarse = texture2D(ground, vUv).r * ${(GROUND_MAX_KM * COARSE_PEAKS).toFixed(2)};
+  vec2 at = 0.5 + 0.5 * vec2(dot(vEcef - localCenter, localEast), dot(vEcef - localCenter, localNorth)) / localHalf;
+  vec4 local = texture2D(localGround, clamp(at, 0.0, 1.0));
+  float edge = max(abs(at.x - 0.5), abs(at.y - 0.5));
+  float drawn = localOn * smoothstep(0.5, 0.95, local.a) * (1.0 - smoothstep(0.4, 0.49, edge));
+  float groundKm = mix(coarse, local.r / max(local.a, 1e-3), drawn);
+  a *= smoothstep(groundKm + mix(${CLEARANCE_KM.coarse[0].toFixed(2)}, ${CLEARANCE_KM.local[0].toFixed(2)}, drawn), groundKm + mix(${CLEARANCE_KM.coarse[1].toFixed(2)}, ${CLEARANCE_KM.local[1].toFixed(2)}, drawn), altitude);
+  // the eye's way: from here, through the air
+  vec3 toHere = mat3(ecefFromWorld) * (vWorld - cameraPosition) * (STRETCH / 1000.0);
+  float distance = length(toHere);
+  a *= smoothstep(${NEAR_KM[0].toFixed(2)}, ${NEAR_KM[1].toFixed(2)}, distance);
   if (a < 0.002) discard;
-  // lit as the ground is (day, dusk, night), but a little longer: their tops catch the Sun after it's set below
-  float light = ${sunlight('vUp', 0.02)};
-  gl_FragColor = vec4(vec3(0.96 * light), a);
+  // lit as the ground is (day, sunset, night), but a little longer: their tops catch the Sun after it's set below
+  vec3 light = sunlightAt(p, 0.02);
+  vec3 L, T;
+  atmosphere(atmoCamera(), toHere / max(distance, 1e-9), distance, ${AIR_STEPS}, L, T);
+  gl_FragColor = vec4(atmoOver(0.96 * light, L, T), a);
   #include <colorspace_fragment>
 }
 `;
@@ -97,9 +130,11 @@ function shell(km) {
 /**
  * The clouds (ECEF: a child of the globe's root). `width`: the infrared
  * image's (4096, or 2048 on headsets); `analyse(url)`: the tile worker's
- * cloud analysis, resolving { clouds (RGBA bytes), width, height }.
+ * cloud analysis, resolving { clouds (RGBA bytes), width, height };
+ * `localGround`: the ground round the viewer's uniforms (GroundCapture's).
+ * group.userData.follow(viewerHeight) each frame (m): which sides show.
  */
-export function makeClouds(width, analyse) {
+export function makeClouds(width, analyse, localGround) {
   const group = new THREE.Group();
   group.name = 'clouds';
   const texture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
@@ -108,10 +143,13 @@ export function makeClouds(width, analyse) {
       name: 'Clouds',
       vertexShader,
       fragmentShader,
-      uniforms: { map: { value: texture }, ground: { value: texture }, layerKm: { value: km }, sunDirection: sunUniform },
+      uniforms: { map: { value: texture }, ground: { value: texture }, layerKm: { value: km }, ...atmosphereUniforms, ...localGround },
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -8,
     });
     const mesh = new THREE.Mesh(shell(km), material);
     mesh.renderOrder = 10 + i;
@@ -148,6 +186,11 @@ export function makeClouds(width, analyse) {
     );
   load();
   const timer = setInterval(load, CLOUDS.refreshS * 1000);
+  group.userData.follow = (viewerHeight) => {
+    LAYERS_KM.forEach((km, i) => {
+      materials[i].side = viewerHeight > km * 1000 ? THREE.FrontSide : THREE.BackSide;
+    });
+  };
   group.userData.dispose = () => {
     gone = true;
     clearInterval(timer);
