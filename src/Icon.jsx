@@ -57,14 +57,6 @@ const monitorSbs = monitor.replace(
 </svg>`,
 );
 
-// Interlaced: the screen's rows, alternate ones solid and dashed
-const monitorInterlaced = monitor.replace(
-  '</svg>',
-  `<path d="M6 7.75h12M6 12.75h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-<path d="M6 10.25h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2 2.5"/>
-</svg>`,
-);
-
 const phone = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
 <rect x="6.75" y="2.75" width="10.5" height="18.5" rx="2" stroke="currentColor" stroke-width="1.5"/>
 <path d="M10.75 18.25h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -180,7 +172,6 @@ const ICONS = {
   monitor,
   display,
   monitorSbs,
-  monitorInterlaced,
   phone,
   phoneViewer,
   // a dropdown, closed and open, and the chosen option in its list

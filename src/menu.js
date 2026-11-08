@@ -73,25 +73,24 @@ export const SOLID_BACKGROUND = '#242424';
  * Options → View, in list order. Normal and the 3D views are windowed; the
  * rest are XR sessions. Phones get the phone views, headsets the HMD one.
  */
-export const VIEWS = ['normal', 'sbs', 'interlaced', 'hmd', 'phoneAR', 'phoneViewer'];
+export const VIEWS = ['normal', 'sbs', 'hmd', 'phoneAR', 'phoneViewer'];
 export const XR_VIEWS = ['hmd', 'phoneAR', 'phoneViewer'];
 const VIEW_LABELS = {
   normal: 'Normal',
   sbs: '3D: SBS',
-  interlaced: '3D: Interlaced',
   hmd: 'XR: HMD Stereo',
   phoneAR: 'XR: Phone AR',
   phoneViewer: 'XR: Phone Viewer',
 };
-const VIEW_ICONS = { normal: 'monitor', sbs: 'monitorSbs', interlaced: 'monitorInterlaced', hmd: 'vr', phoneAR: 'phone', phoneViewer: 'phoneViewer' };
+const VIEW_ICONS = { normal: 'monitor', sbs: 'monitorSbs', hmd: 'vr', phoneAR: 'phone', phoneViewer: 'phoneViewer' };
 
 /**
  * The views this device can show. `env`: { phone, headset, xrSupported }.
- * A headset browser's own window can't show the 3D views usefully, so not there.
+ * A headset browser's own window can't show 3D: SBS usefully, so not there.
  */
 export function availableViews(env) {
   return VIEWS.filter((view) => {
-    if (view === 'sbs' || view === 'interlaced') return !env.headset;
+    if (view === 'sbs') return !env.headset;
     if (view === 'hmd') return !env.phone && env.xrSupported;
     if (view === 'phoneAR' || view === 'phoneViewer') return env.phone;
     return true;
@@ -388,7 +387,7 @@ function settingsById(state, env) {
 
 /** Why this device can't show `view` (see availableViews). */
 function viewUnavailableReason(view, env) {
-  if (view === 'sbs' || view === 'interlaced') return "A headset's browser can't show the 3D views";
+  if (view === 'sbs') return "A headset's browser can't show 3D: SBS";
   if (view === 'phoneAR' || view === 'phoneViewer') return 'Needs a phone';
   if (env.phone) return 'Needs a headset';
   return env.checking ? 'Checking for WebXR…' : "WebXR isn't available here. Open the page in a headset browser over HTTPS for XR.";

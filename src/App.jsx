@@ -47,8 +47,7 @@ import {
 // How the display settings work:
 //   Background (Solid / Skybox / Passthrough): what is behind the globe. Changes live.
 //   View: picks from the views this device supports (see menu.js):
-//     Normal, 3D: SBS (half side-by-side, for 3D TVs) and 3D: Interlaced
-//     (alternate rows, for passive 3D monitors) are windowed.
+//     Normal and 3D: SBS (half side-by-side, for 3D TVs) are windowed.
 //     The XR views start a session, only from a tap, as browsers require.
 //
 // XR: HMD Stereo (headsets) starts an AR session where supported (so every

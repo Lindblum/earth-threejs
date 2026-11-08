@@ -75,7 +75,7 @@ Credits for what's on show are at the bottom right (in XR, under the Options tit
 - `src/sky.js`, `src/SkyLayer.jsx`, `src/constellations.js`: the sky
 - `src/location.js`: finding where you are
 - `src/Scene.jsx`, `src/App.jsx`, `src/menu.js`, `src/XRMenuPanel.jsx`: the scene, app state and panels
-- `src/SideBySide.jsx`, `src/Interlaced.jsx`, `src/PhoneStereo.jsx`, `src/Cardboard.jsx`, `src/CardboardLens.js`, `src/Gaze.jsx`: the stereo and phone views
+- `src/SideBySide.jsx`, `src/PhoneStereo.jsx`, `src/Cardboard.jsx`, `src/CardboardLens.js`, `src/Gaze.jsx`: the stereo and phone views
 
 ## Next
 

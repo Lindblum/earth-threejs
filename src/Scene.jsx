@@ -11,7 +11,6 @@ import { SOLID_BACKGROUND } from './menu.js';
 import { FramePacing } from './FramePacing.jsx';
 import { PhoneStereoCameraFeed, PhoneStereoXR } from './PhoneStereo.jsx';
 import { SideBySide } from './SideBySide.jsx';
-import { Interlaced } from './Interlaced.jsx';
 import { DesktopControls, Earth } from './Earth.jsx';
 import { playTick } from './sound.js';
 import { SkyLayer, sunInWorld } from './SkyLayer.jsx';
@@ -202,7 +201,6 @@ export default function Scene({ state, panels, onSelect, menuOverlay, phone, pos
       <FramePacing seeThrough={false} vsync={state.vsync} />
       <RestoreViewAfterXR />
       {state.view === 'sbs' && !immersive && <SideBySide />}
-      {state.view === 'interlaced' && !immersive && <Interlaced />}
       {phoneStereo && <PhoneStereoXR />}
       {phoneStereo && state.passthrough && (
         <PhoneStereoCameraFeed onUnavailable={(reason) => console.warn(`[earth] no per-eye camera image (${reason}); the browser's camera view shows behind instead`)} />
