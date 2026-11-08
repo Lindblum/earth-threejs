@@ -129,7 +129,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 /* a slider: its name and value, then the track, as wide in every slider (as in xr-music-threejs) */
 .menu-btn.menu-slider { cursor: default; }
-.menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #6f8dff; cursor: pointer; }
+.menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #5aa0ff; cursor: pointer; }
 .menu-sizer .menu-slider input[type='range'] { visibility: hidden; }
 
 /* a group's settings beneath its button, indented like a dropdown's choices */

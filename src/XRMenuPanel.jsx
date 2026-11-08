@@ -94,7 +94,7 @@ function labelWidth(label) {
 // panel's 120 px, as in xr-music-threejs), blue where it's filled, and the knob blue
 const TRACK = 280;
 const KNOB = 17; // the knob's radius
-const SLIDER_BLUE = '#6f8dff';
+const SLIDER_BLUE = '#5aa0ff';
 const sliderTrack = (r) => ({ x0: r.x + r.w - INSET - KNOB - TRACK, x1: r.x + r.w - INSET - KNOB });
 /** Slider `item`'s value at canvas x `px` on button rect `r`, snapped to its steps. */
 function sliderValueAt(item, r, px) {
